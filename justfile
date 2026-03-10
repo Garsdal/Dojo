@@ -26,6 +26,15 @@ run:
 run-stub:
     AGENTML__AGENT__BACKEND=stub uv run agentml start
 
+# Start with stub agent + MLflow tracking (server on :8080, store in ./mlruns)
+run-stub-mlflow:
+    uv run mlflow server --backend-store-uri ./mlruns --host 127.0.0.1 --port 8080 &
+    @sleep 2
+    AGENTML__AGENT__BACKEND=stub \
+    AGENTML__TRACKING__BACKEND=mlflow \
+    AGENTML__TRACKING__MLFLOW_TRACKING_URI=http://127.0.0.1:8080 \
+    uv run agentml start
+
 # Frontend
 frontend-install:
     cd frontend && npm install
