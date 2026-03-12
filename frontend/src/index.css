@@ -18,7 +18,7 @@
   }
 
   body {
-    font-family: 'Nunito Sans', system-ui, sans-serif;
+    font-family: 'Inter', system-ui, sans-serif;
     font-weight: 400;
     color: #59344F;
     background-color: #FEFCF8;
@@ -27,7 +27,7 @@
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Nunito', system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
   }
 
   code, pre, kbd, samp {
@@ -69,8 +69,8 @@
   --radius-lg: var(--radius);
   --radius-xl: 1.25rem;
   /* Font families */
-  --font-sans: 'Nunito Sans', system-ui, sans-serif;
-  --font-heading: 'Nunito', system-ui, sans-serif;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-heading: 'Plus Jakarta Sans', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
 
