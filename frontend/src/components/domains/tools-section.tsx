@@ -57,7 +57,7 @@ export function ToolsSection({ domainId, tools, onMutate }: ToolsSectionProps) {
   return (
     <div className="space-y-3">
       {tools.length === 0 && !showForm && (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-grey">
           No custom tools. Add tools to extend the agent's capabilities.
         </p>
       )}
@@ -65,25 +65,34 @@ export function ToolsSection({ domainId, tools, onMutate }: ToolsSectionProps) {
       {tools.map((tool) => (
         <div
           key={tool.id}
-          className="flex items-start justify-between rounded-lg border p-3"
+          className="bg-white rounded-xl border border-soft-fawn/20 hover:border-soft-fawn/40 p-4 transition-colors flex items-start justify-between"
         >
-          <div className="space-y-0.5">
+          <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium font-mono">{tool.name}</span>
-              <span className="text-[10px] text-muted-foreground uppercase">
+              <span className="font-mono font-bold text-blackberry text-sm">
+                {tool.name}
+              </span>
+              <span className="bg-wheat/20 text-blackberry rounded-full text-xs px-2 py-0.5">
                 {tool.type}
               </span>
+              {tool.created_by === "ai" ? (
+                <span className="bg-soft-fawn/20 text-soft-fawn rounded-full text-xs px-2 py-0.5">
+                  ai
+                </span>
+              ) : (
+                <span className="bg-grey/15 text-grey rounded-full text-xs px-2 py-0.5">
+                  human
+                </span>
+              )}
             </div>
             {tool.description && (
-              <p className="text-xs text-muted-foreground">
-                {tool.description}
-              </p>
+              <p className="text-grey text-xs">{tool.description}</p>
             )}
           </div>
           <Button
             variant="ghost"
             size="sm"
-            className="text-xs text-muted-foreground hover:text-destructive"
+            className="text-xs text-grey hover:text-danger"
             onClick={() => handleRemove(tool.id)}
           >
             Remove
@@ -92,24 +101,22 @@ export function ToolsSection({ domainId, tools, onMutate }: ToolsSectionProps) {
       ))}
 
       {showForm ? (
-        <form onSubmit={handleAdd} className="space-y-3 rounded-lg border p-3">
+        <form onSubmit={handleAdd} className="space-y-3 rounded-xl border border-soft-fawn/20 p-4">
           <Input
             placeholder="Tool name (e.g. load_dataset)"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="bg-secondary/50"
           />
           <Input
             placeholder="Description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="bg-secondary/50"
           />
           <Textarea
             placeholder="Example usage (optional Python snippet)"
             value={exampleUsage}
             onChange={(e) => setExampleUsage(e.target.value)}
-            className="bg-secondary/50 min-h-[80px] resize-none font-mono text-xs"
+            className="min-h-[80px] resize-none font-mono text-xs"
           />
           <div className="flex gap-2">
             <Button
@@ -195,7 +202,7 @@ function GenerateToolsButton({
     return (
       <div className="space-y-3 w-full">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className="text-xs font-medium text-grey">
             AI-Generated Tools (review & approve)
           </span>
           <Button
@@ -210,14 +217,14 @@ function GenerateToolsButton({
         {generated.map((tool) => (
           <div
             key={tool.name}
-            className="rounded-lg border border-dashed p-3 space-y-2"
+            className="rounded-xl border border-dashed border-soft-fawn/40 bg-wheat/5 p-4 space-y-2"
           >
             <div className="flex items-center justify-between">
-              <div>
-                <span className="text-sm font-medium font-mono">
+              <div className="flex items-center gap-2">
+                <span className="font-mono font-bold text-blackberry text-sm">
                   {tool.name}
                 </span>
-                <span className="ml-2 text-[10px] text-muted-foreground uppercase">
+                <span className="bg-wheat/20 text-blackberry rounded-full text-xs px-2 py-0.5">
                   {tool.type}
                 </span>
               </div>
@@ -230,9 +237,9 @@ function GenerateToolsButton({
                 {isAdding === tool.name ? "Adding…" : "Approve"}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">{tool.description}</p>
+            <p className="text-grey text-xs">{tool.description}</p>
             {tool.example_usage && (
-              <pre className="text-[10px] font-mono bg-secondary/50 rounded p-2 max-h-[120px] overflow-auto">
+              <pre className="text-[10px] font-mono bg-blackberry/5 rounded-lg text-blackberry p-2 max-h-[120px] overflow-auto">
                 {tool.example_usage}
               </pre>
             )}
@@ -249,7 +256,7 @@ function GenerateToolsButton({
           placeholder="Hint (e.g. data loaders for CSV files)"
           value={hint}
           onChange={(e) => setHint(e.target.value)}
-          className="bg-secondary/50 text-xs h-8"
+          className="text-xs h-8"
         />
         <Button size="sm" onClick={handleGenerate} disabled={isGenerating}>
           {isGenerating ? "Generating…" : "Generate"}

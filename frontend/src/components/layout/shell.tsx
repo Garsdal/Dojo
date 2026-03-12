@@ -8,8 +8,10 @@ export function Shell() {
       <Header />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-y-auto p-6">
-          <Outlet />
+        <main className="flex-1 overflow-y-auto">
+          <div className="max-w-7xl mx-auto px-6 py-5">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

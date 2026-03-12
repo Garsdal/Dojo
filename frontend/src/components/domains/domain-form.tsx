@@ -1,8 +1,15 @@
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Plus } from "lucide-react";
 import type { Domain } from "@/types";
 
 interface DomainFormProps {
@@ -15,9 +22,11 @@ interface DomainFormProps {
 }
 
 export function DomainForm({ onSubmit, isLoading }: DomainFormProps) {
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [showPrompt, setShowPrompt] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,46 +35,82 @@ export function DomainForm({ onSubmit, isLoading }: DomainFormProps) {
     setName("");
     setDescription("");
     setPrompt("");
+    setShowPrompt(false);
+    setOpen(false);
   };
 
   return (
-    <Card className="rounded-xl">
-      <CardHeader>
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          Create Research Domain
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button>
+          <Plus className="h-4 w-4" />
+          New Domain
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="font-heading font-bold text-blackberry">
+            Create Research Domain
+          </DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
           <div>
+            <label className="text-sm font-medium text-blackberry mb-1.5 block">
+              Name <span className="text-danger">*</span>
+            </label>
             <Input
-              placeholder="Domain name (e.g. Sentiment Analysis)"
+              placeholder="e.g. Sentiment Analysis"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="bg-secondary/50"
+              maxLength={80}
             />
+            <span className="text-xs text-grey mt-1 block text-right">
+              {name.length}/80
+            </span>
           </div>
           <div>
-            <Input
-              placeholder="Brief description"
+            <label className="text-sm font-medium text-blackberry mb-1.5 block">
+              Description
+            </label>
+            <Textarea
+              placeholder="Brief description of this research domain"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="bg-secondary/50"
+              className="min-h-[80px]"
             />
           </div>
           <div>
-            <Textarea
-              placeholder="Steering prompt for the AI agent (optional)"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              className="bg-secondary/50 min-h-[80px] resize-none"
-            />
+            <button
+              type="button"
+              onClick={() => setShowPrompt(!showPrompt)}
+              className="text-sm text-grey hover:text-blackberry transition-colors flex items-center gap-1"
+            >
+              <span>{showPrompt ? "▾" : "▸"}</span>
+              Advanced: System Prompt
+            </button>
+            {showPrompt && (
+              <Textarea
+                className="mt-2 min-h-[100px]"
+                placeholder="Steering prompt for the AI agent (optional)"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+              />
+            )}
           </div>
-          <Button type="submit" disabled={!name.trim() || isLoading}>
-            {isLoading ? "Creating…" : "Create Domain"}
-          </Button>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!name.trim() || isLoading}>
+              {isLoading ? "Creating…" : "Create Domain"}
+            </Button>
+          </div>
         </form>
-      </CardContent>
-    </Card>
+      </DialogContent>
+    </Dialog>
   );
 }

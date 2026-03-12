@@ -1,4 +1,14 @@
 import { useState, useMemo } from "react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import { cn } from "@/lib/utils";
 import type { MetricPoint } from "@/types";
 
 interface MetricEvolutionChartProps {
@@ -6,105 +16,114 @@ interface MetricEvolutionChartProps {
   isLoading: boolean;
 }
 
-export function MetricEvolutionChart({
-  data,
-  isLoading,
-}: MetricEvolutionChartProps) {
-  if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>;
-  }
+interface TooltipPayloadEntry {
+  value: number;
+  payload: { expId: string };
+}
 
-  if (!data || data.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No metrics yet. Metrics appear after experiments complete.
-      </p>
-    );
-  }
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: TooltipPayloadEntry[];
+}
 
-  // Collect all metric keys
+function CustomTooltip({ active, payload }: CustomTooltipProps) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-soft-fawn/30 rounded-xl px-3 py-2 shadow-sm text-xs">
+      <div className="font-semibold text-blackberry">{payload[0].value.toFixed(4)}</div>
+      <div className="text-grey">exp: {payload[0].payload.expId}…</div>
+    </div>
+  );
+}
+
+export function MetricEvolutionChart({ data, isLoading }: MetricEvolutionChartProps) {
   const metricKeys = useMemo(() => {
+    if (!data) return [];
     const keys = new Set<string>();
     data.forEach((p) => Object.keys(p.metrics).forEach((k) => keys.add(k)));
     return Array.from(keys).sort();
   }, [data]);
 
-  const [selectedMetric, setSelectedMetric] = useState<string>(
-    metricKeys[0] ?? "",
-  );
+  const [selectedMetric, setSelectedMetric] = useState<string>(metricKeys[0] ?? "");
 
-  // Get values for the selected metric across experiments
-  const points = useMemo(() => {
+  const chartData = useMemo(() => {
+    if (!data) return [];
     return data
       .filter((p) => selectedMetric in p.metrics)
       .map((p, i) => ({
-        index: i,
+        index: i + 1,
         value: p.metrics[selectedMetric],
-        experimentId: p.experiment_id,
-        state: p.state,
+        expId: p.experiment_id.slice(0, 8),
       }));
   }, [data, selectedMetric]);
 
-  if (metricKeys.length === 0) {
+  if (isLoading) {
+    return <p className="text-sm text-grey">Loading…</p>;
+  }
+
+  if (!data || data.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        No numeric metrics recorded.
+      <p className="text-sm text-grey">
+        No metrics yet. Metrics appear after experiments complete.
       </p>
     );
   }
 
-  const maxVal = Math.max(...points.map((p) => p.value), 0.001);
-  const minVal = Math.min(...points.map((p) => p.value), 0);
+  if (metricKeys.length === 0) {
+    return <p className="text-sm text-grey">No numeric metrics recorded.</p>;
+  }
 
   return (
-    <div className="space-y-3">
-      {/* Metric selector */}
-      <div className="flex items-center gap-2 flex-wrap">
+    <div className="space-y-4">
+      {/* Metric selector pills */}
+      <div className="flex items-center gap-1.5 flex-wrap">
         {metricKeys.map((key) => (
           <button
             key={key}
             onClick={() => setSelectedMetric(key)}
-            className={`px-2 py-0.5 rounded text-xs border transition-colors ${
+            className={cn(
+              "px-3 py-1 rounded-full text-xs font-medium transition-all",
               key === selectedMetric
-                ? "bg-foreground text-background border-foreground"
-                : "bg-secondary/50 text-muted-foreground border-border hover:bg-secondary"
-            }`}
+                ? "bg-wheat/50 text-blackberry font-semibold"
+                : "text-grey hover:text-blackberry hover:bg-wheat/20",
+            )}
           >
             {key}
           </button>
         ))}
       </div>
 
-      {/* Simple bar chart */}
-      <div className="flex items-end gap-1 h-32">
-        {points.map((p) => {
-          const height =
-            maxVal === minVal
-              ? 50
-              : ((p.value - minVal) / (maxVal - minVal)) * 100;
-          return (
-            <div
-              key={p.index}
-              className="flex-1 min-w-[12px] rounded-t bg-foreground/40 hover:bg-foreground/60 transition-colors relative group"
-              style={{ height: `${Math.max(height, 4)}%` }}
-            >
-              {/* Tooltip */}
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block whitespace-nowrap rounded bg-popover border px-2 py-1 text-[10px] shadow-md z-10">
-                <div className="font-mono">{p.value.toFixed(4)}</div>
-                <div className="text-muted-foreground">
-                  {p.experimentId.slice(0, 10)}…
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Axis labels */}
-      <div className="flex justify-between text-[10px] text-muted-foreground">
-        <span>{minVal.toFixed(3)}</span>
-        <span className="font-medium">{selectedMetric}</span>
-        <span>{maxVal.toFixed(3)}</span>
+      {/* Chart */}
+      <div className="bg-white rounded-2xl border border-soft-fawn/20 p-4">
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(214,186,115,0.15)" />
+            <XAxis
+              dataKey="index"
+              tick={{ fontSize: 10, fill: "#857E7B" }}
+              tickLine={false}
+              axisLine={{ stroke: "rgba(214,186,115,0.2)" }}
+            />
+            <YAxis
+              tick={{ fontSize: 10, fill: "#857E7B" }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v: number) => v.toFixed(2)}
+            />
+            <Tooltip content={<CustomTooltip />} />
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke="#59344F"
+              strokeWidth={2}
+              dot={{ r: 3, fill: "#59344F", strokeWidth: 0 }}
+              activeDot={{ r: 5, fill: "#8BBF9F", strokeWidth: 0 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+        <div className="text-center mt-1">
+          <span className="text-xs text-grey font-medium">{selectedMetric}</span>
+        </div>
       </div>
     </div>
   );

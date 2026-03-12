@@ -1,12 +1,12 @@
 import { NavLink } from "react-router-dom";
-import { FlaskConical } from "lucide-react";
+import { LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const navItems = [{ to: "/", label: "Domains", icon: FlaskConical }];
+const navItems = [{ to: "/", label: "Domains", icon: LayoutGrid }];
 
 export function Sidebar() {
   return (
-    <aside className="w-56 border-r bg-background flex flex-col py-4">
+    <aside className="hidden md:flex w-56 border-r border-soft-fawn/20 bg-surface flex-col py-4">
       <nav className="flex flex-col gap-1 px-3">
         {navItems.map((item) => (
           <NavLink
@@ -15,10 +15,10 @@ export function Sidebar() {
             end={item.to === "/"}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                "flex items-center gap-3 rounded-xl px-4 py-2 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-secondary text-foreground"
-                  : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
+                  ? "bg-wheat/40 text-blackberry font-semibold"
+                  : "text-grey hover:bg-wheat/20 hover:text-blackberry",
               )
             }
           >

@@ -1,8 +1,6 @@
 import { StateBadge } from "@/components/state-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { EventFeed } from "@/components/agent/event-feed";
-import { RunSummary } from "@/components/agent/run-summary";
+import { EventTimeline } from "@/components/agent/event-timeline";
 import { useAgentRun } from "@/hooks/use-agent";
 import { useAgentEvents } from "@/hooks/use-agent-events";
 import { stopAgentRun } from "@/hooks/use-agent";
@@ -10,77 +8,67 @@ import { Square } from "lucide-react";
 
 interface AgentRunViewProps {
   runId: string;
+  onStop?: () => void;
 }
 
-export function AgentRunView({ runId }: AgentRunViewProps) {
+export function AgentRunView({ runId, onStop }: AgentRunViewProps) {
   const { data: run, mutate } = useAgentRun(runId);
   const { events } = useAgentEvents(runId);
 
   if (!run) {
     return (
-      <Card className="rounded-xl">
-        <CardContent className="py-8">
-          <p className="text-sm text-muted-foreground text-center">
-            Loading run...
-          </p>
-        </CardContent>
-      </Card>
+      <div className="py-8 text-center text-sm text-grey">
+        Loading run…
+      </div>
     );
   }
 
   const isRunning = run.status === "running";
+  const displayEvents = events.length > 0 ? events : run.events;
 
   const handleStop = async () => {
     await stopAgentRun(runId);
     void mutate();
+    onStop?.();
   };
 
   return (
-    <div className="space-y-4">
-      {/* Status header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <div className="flex flex-col gap-3">
+      {/* Status bar */}
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-2">
           <StateBadge state={run.status} />
-          <span className="text-sm text-muted-foreground">
-            {run.num_turns > 0 && `Turn ${run.num_turns}`}
-            {run.total_cost_usd != null &&
-              ` · $${run.total_cost_usd.toFixed(3)}`}
-          </span>
+          {run.num_turns > 0 && (
+            <span className="text-xs text-grey">
+              {run.num_turns} turn{run.num_turns !== 1 ? "s" : ""}
+              {run.total_cost_usd != null && ` · $${run.total_cost_usd.toFixed(4)}`}
+            </span>
+          )}
         </div>
         {isRunning && (
           <Button variant="destructive" size="sm" onClick={handleStop}>
-            <Square className="h-3 w-3 mr-1" />
-            Stop Agent
+            <Square className="h-3 w-3" />
+            Stop
           </Button>
         )}
       </div>
 
-      {/* Prompt */}
-      <Card className="rounded-xl">
-        <CardHeader>
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            Prompt
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm">{run.prompt}</p>
-        </CardContent>
-      </Card>
+      {/* Prompt display */}
+      <div className="bg-wheat/10 rounded-xl border border-soft-fawn/20 px-4 py-3">
+        <div className="text-xs text-grey mb-1">Prompt</div>
+        <p className="text-sm text-blackberry">{run.prompt}</p>
+      </div>
 
-      {/* Event feed */}
-      <Card className="rounded-xl">
-        <CardHeader>
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            Event Feed
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <EventFeed events={events.length > 0 ? events : run.events} />
-        </CardContent>
-      </Card>
+      {/* Event timeline */}
+      <EventTimeline events={displayEvents} />
 
-      {/* Run summary (shown when done) */}
-      <RunSummary run={run} />
+      {/* Error display */}
+      {run.error && (
+        <div className="bg-danger/5 border border-danger/20 rounded-xl px-4 py-3">
+          <div className="text-xs text-danger font-semibold mb-1">Run Error</div>
+          <pre className="text-xs text-danger font-mono whitespace-pre-wrap">{run.error}</pre>
+        </div>
+      )}
     </div>
   );
 }

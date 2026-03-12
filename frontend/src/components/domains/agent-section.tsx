@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentPromptForm } from "@/components/agent/agent-prompt-form";
 import { AgentRunView } from "@/components/agent/agent-run-view";
 import { startAgentRun, useAgentRuns } from "@/hooks/use-agent";
 import { StateBadge } from "@/components/state-badge";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 import type { ToolHint } from "@/types";
 
 interface AgentSectionProps {
@@ -15,7 +16,6 @@ export function AgentSection({ domainId }: AgentSectionProps) {
   const [isStarting, setIsStarting] = useState(false);
   const { data: runs } = useAgentRuns();
 
-  // Filter runs for this domain
   const domainRuns = runs?.filter((r) => r.domain_id === domainId) ?? [];
 
   const handleStart = async (prompt: string, toolHints: ToolHint[]) => {
@@ -30,41 +30,55 @@ export function AgentSection({ domainId }: AgentSectionProps) {
 
   return (
     <div className="space-y-4">
+      {/* New research button when viewing a run */}
+      {activeRunId && (
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-grey">Current run</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setActiveRunId(null)}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New Research
+          </Button>
+        </div>
+      )}
+
+      {/* Run view */}
+      {activeRunId && (
+        <AgentRunView runId={activeRunId} onStop={() => setActiveRunId(null)} />
+      )}
+
+      {/* Prompt form (shown when no active run OR after run completed) */}
       {!activeRunId && (
         <AgentPromptForm onSubmit={handleStart} isLoading={isStarting} />
       )}
 
-      {activeRunId && <AgentRunView runId={activeRunId} />}
-
+      {/* Previous runs */}
       {domainRuns.length > 0 && (
-        <Card className="rounded-xl">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Previous Runs
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {domainRuns
-                .filter((r) => r.id !== activeRunId)
-                .map((run) => (
-                  <button
-                    key={run.id}
-                    onClick={() => setActiveRunId(run.id)}
-                    className="w-full flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm hover:bg-secondary/50 transition-colors"
-                  >
-                    <span className="truncate max-w-[60%]">{run.prompt}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        {run.num_turns} turns
-                      </span>
-                      <StateBadge state={run.status} />
-                    </div>
-                  </button>
-                ))}
-            </div>
-          </CardContent>
-        </Card>
+        <div className="mt-2">
+          <h3 className="text-xs font-semibold text-grey uppercase tracking-wide mb-2 px-1">
+            Previous Runs
+          </h3>
+          <div className="space-y-1.5">
+            {domainRuns
+              .filter((r) => r.id !== activeRunId)
+              .map((run) => (
+                <button
+                  key={run.id}
+                  onClick={() => setActiveRunId(run.id)}
+                  className="w-full flex items-center justify-between rounded-xl border border-soft-fawn/20 bg-white px-4 py-2.5 text-left text-sm hover:bg-wheat/5 hover:border-soft-fawn/40 transition-all"
+                >
+                  <span className="truncate max-w-[60%] text-blackberry text-sm">{run.prompt}</span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-grey">{run.num_turns} turns</span>
+                    <StateBadge state={run.status} />
+                  </div>
+                </button>
+              ))}
+          </div>
+        </div>
       )}
     </div>
   );
