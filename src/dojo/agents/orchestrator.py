@@ -126,15 +126,15 @@ class AgentOrchestrator:
             async for event in self.backend.execute(run.prompt):
                 run.events.append(event)
 
-                # Handle the result event
-                if event.event_type == "result":
+                # Handle the result event (don't overwrite STOPPED status)
+                if event.event_type == "result" and run.status == RunStatus.RUNNING:
                     run.result = _result_from_event(event)
                     run.status = (
                         RunStatus.FAILED if event.data.get("is_error") else RunStatus.COMPLETED
                     )
 
                 # Handle error events
-                if event.event_type == "error":
+                if event.event_type == "error" and run.status == RunStatus.RUNNING:
                     run.status = RunStatus.FAILED
                     run.error = event.data.get("error", "Unknown error")
 
@@ -153,6 +153,7 @@ class AgentOrchestrator:
         await self.backend.stop()
         if self._run:
             self._run.status = RunStatus.STOPPED
+            self._run.completed_at = datetime.now(UTC)
             self._run.completed_at = datetime.now(UTC)
 
 

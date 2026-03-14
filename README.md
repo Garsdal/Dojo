@@ -8,6 +8,12 @@
 
 ---
 
+<div align="center">
+  <img src="assets/dojo_chat_example.png" alt="Dojo chat example" width="800" />
+</div>
+
+---
+
 ## What is Dojo?
 
 You define the **domain** — a research area with goals, data, and tools. AI agents handle the rest: planning hypotheses, writing and executing experiment code, logging metrics, and continuously distilling findings into a growing knowledge base.

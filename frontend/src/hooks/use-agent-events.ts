@@ -13,7 +13,11 @@ export function useAgentEvents(runId: string | undefined) {
   const mutateRef = useRef(mutate);
   mutateRef.current = mutate;
 
-  const revalidate = useCallback(() => {
+  // Throttled revalidation: at most once every 2s, so rapid events don't spam fetches
+  const lastRevalidateRef = useRef(0);
+  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const doRevalidate = useCallback(() => {
     void mutateRef.current(
       (key) =>
         typeof key === "string" &&
@@ -24,7 +28,28 @@ export function useAgentEvents(runId: string | undefined) {
       undefined,
       { revalidate: true },
     );
+    lastRevalidateRef.current = Date.now();
   }, []);
+
+  const revalidate = useCallback(
+    (immediate?: boolean) => {
+      if (immediate) {
+        if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+        doRevalidate();
+        return;
+      }
+      const elapsed = Date.now() - lastRevalidateRef.current;
+      if (elapsed >= 2000) {
+        doRevalidate();
+      } else if (!pendingTimerRef.current) {
+        pendingTimerRef.current = setTimeout(() => {
+          pendingTimerRef.current = null;
+          doRevalidate();
+        }, 2000 - elapsed);
+      }
+    },
+    [doRevalidate],
+  );
 
   useEffect(() => {
     if (!runId) return;
@@ -44,6 +69,7 @@ export function useAgentEvents(runId: string | undefined) {
       }
     };
 
+    // Revalidate on every tool_result (data may have changed on server)
     const handleToolResult = (e: MessageEvent) => {
       handleEvent(e);
       revalidate();
@@ -53,10 +79,14 @@ export function useAgentEvents(runId: string | undefined) {
     es.addEventListener("tool_result", handleToolResult);
     es.addEventListener("text", handleEvent);
     es.addEventListener("error", handleEvent);
-    es.addEventListener("result", handleEvent);
+    es.addEventListener("result", (e: MessageEvent) => {
+      handleEvent(e);
+      // result event means the run finished — immediately revalidate
+      revalidate(true);
+    });
     es.addEventListener("done", () => {
       setDone(true);
-      revalidate();
+      revalidate(true);
       es.close();
     });
     es.onerror = () => {
@@ -64,7 +94,10 @@ export function useAgentEvents(runId: string | undefined) {
       es.close();
     };
 
-    return () => es.close();
+    return () => {
+      es.close();
+      if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    };
   }, [runId, revalidate]);
 
   return { events, done };

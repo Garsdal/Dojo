@@ -23,6 +23,10 @@ export function AgentRunView({ runId }: AgentRunViewProps) {
   const isRunning = run.status === "running";
   const displayEvents = events.length > 0 ? events : run.events;
 
+  // Derive live turn count from streamed events (each tool_call = 1 turn)
+  const liveTurns = events.filter((e) => e.event_type === "tool_call").length;
+  const turns = liveTurns > run.num_turns ? liveTurns : run.num_turns;
+
   const handleStop = async () => {
     await stopAgentRun(runId);
     void mutate();
@@ -34,9 +38,9 @@ export function AgentRunView({ runId }: AgentRunViewProps) {
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-2">
           <StateBadge state={run.status} />
-          {run.num_turns > 0 && (
+          {turns > 0 && (
             <span className="text-xs text-grey">
-              {run.num_turns} turn{run.num_turns !== 1 ? "s" : ""}
+              {turns} turn{turns !== 1 ? "s" : ""}
               {run.total_cost_usd != null &&
                 ` · $${run.total_cost_usd.toFixed(4)}`}
             </span>
