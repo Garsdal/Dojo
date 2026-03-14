@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useDomains, createDomain } from "@/hooks/use-domains";
 import { DomainCard } from "@/components/domains/domain-card";
 import { DomainForm } from "@/components/domains/domain-form";
+import type { WorkspaceFormData } from "@/components/domains/domain-form";
 import { cn } from "@/lib/utils";
 import { LayoutGrid } from "lucide-react";
 
@@ -23,10 +24,23 @@ export default function DomainOverviewPage() {
     name: string;
     description: string;
     prompt: string;
+    workspace?: WorkspaceFormData;
   }) => {
     setIsCreating(true);
     try {
-      await createDomain(data);
+      await createDomain({
+        name: data.name,
+        description: data.description,
+        prompt: data.prompt,
+        workspace: data.workspace
+          ? {
+              source: data.workspace.source,
+              path: data.workspace.path || undefined,
+              git_url: data.workspace.git_url || null,
+              git_ref: data.workspace.git_ref || null,
+            }
+          : undefined,
+      });
       await mutate();
     } finally {
       setIsCreating(false);
