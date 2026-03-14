@@ -10,6 +10,7 @@ from dojo.runtime.keyword_linker import KeywordKnowledgeLinker
 from dojo.runtime.lab import LabEnvironment
 from dojo.sandbox.local import LocalSandbox
 from dojo.storage.local import (
+    LocalAgentRunStore,
     LocalArtifactStore,
     LocalDomainStore,
     LocalExperimentStore,
@@ -93,5 +94,6 @@ def build_lab(settings: Settings) -> LabEnvironment:
         domain_store=LocalDomainStore(base_dir=base / "domains"),
         knowledge_link_store=knowledge_link_store,
         knowledge_linker=KeywordKnowledgeLinker(memory_store, knowledge_link_store),
+        agent_run_store=LocalAgentRunStore(base_dir=base / "agent_runs"),
         settings=settings,
     )

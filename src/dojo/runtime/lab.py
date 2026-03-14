@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from dojo.interfaces.agent_run_store import AgentRunStore
 from dojo.interfaces.artifact_store import ArtifactStore
 from dojo.interfaces.compute import ComputeBackend
 from dojo.interfaces.domain_store import DomainStore
@@ -29,4 +30,5 @@ class LabEnvironment:
     domain_store: DomainStore
     knowledge_link_store: KnowledgeLinkStore
     knowledge_linker: KnowledgeLinker
+    agent_run_store: AgentRunStore
     settings: Any | None = field(default=None)

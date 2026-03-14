@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 from dojo.agents.backend import AgentBackend
@@ -18,6 +19,9 @@ from dojo.core.domain import Domain
 from dojo.runtime.lab import LabEnvironment
 from dojo.tools.server import collect_all_tools
 from dojo.utils.logging import get_logger
+
+# Callback signature: (run, event) -> awaitable
+OnEventCallback = Callable[[AgentRun, AgentEvent], Awaitable[None]]
 
 logger = get_logger(__name__)
 
@@ -44,6 +48,7 @@ class AgentOrchestrator:
         max_budget_usd: float | None = None,
         permission_mode: str = "acceptEdits",
         cwd: str | None = None,
+        on_event: OnEventCallback | None = None,
     ) -> None:
         self.lab = lab
         self.backend = backend
@@ -51,6 +56,7 @@ class AgentOrchestrator:
         self.max_budget_usd = max_budget_usd
         self.permission_mode = permission_mode
         self.cwd = cwd
+        self.on_event = on_event
         self._run: AgentRun | None = None
 
     async def start(
@@ -142,15 +148,24 @@ class AgentOrchestrator:
                     run.status = RunStatus.FAILED
                     run.error = event.data.get("error", "Unknown error")
 
+                if self.on_event:
+                    await self.on_event(run, event)
+
             if run.status == RunStatus.RUNNING:
                 run.status = RunStatus.COMPLETED
             run.completed_at = datetime.now(UTC)
+
+            # Final persist after status transition
+            if self.on_event:
+                await self.on_event(run, AgentEvent(event_type="_flush"))
 
         except Exception as e:
             run.status = RunStatus.FAILED
             run.error = str(e)
             run.completed_at = datetime.now(UTC)
             logger.error("agent_run_failed", run_id=run.id, error=str(e))
+            if self.on_event:
+                await self.on_event(run, AgentEvent(event_type="_flush"))
 
     async def stop(self) -> None:
         """Stop the running agent by interrupting the backend."""
@@ -167,6 +182,8 @@ class AgentOrchestrator:
                     session_id=None,
                     num_turns=tool_calls,
                 )
+            if self.on_event:
+                await self.on_event(self._run, AgentEvent(event_type="_flush"))
 
 
 def _result_from_event(event: AgentEvent) -> AgentRunResult:

@@ -22,7 +22,9 @@ from dojo.config.settings import Settings
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """Manage application lifecycle — clean up tracking on shutdown."""
+    """Manage application lifecycle — load persisted data on startup, clean up on shutdown."""
+    if hasattr(app.state, "lab"):
+        await agent.load_runs(app.state.lab)
     yield
     if hasattr(app.state, "lab"):
         await app.state.lab.tracking.close()

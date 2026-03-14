@@ -2,14 +2,16 @@
 
 import asyncio
 import json
+import time
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from dojo.agents.factory import create_agent_backend
-from dojo.agents.orchestrator import AgentOrchestrator
-from dojo.agents.types import AgentRun, RunStatus, ToolHint
+from dojo.agents.orchestrator import AgentOrchestrator, OnEventCallback
+from dojo.agents.types import AgentEvent, AgentRun, RunStatus, ToolHint
+from dojo.interfaces.agent_run_store import AgentRunStore
 from dojo.runtime.lab import LabEnvironment
 from dojo.utils.ids import generate_id
 
@@ -82,6 +84,7 @@ async def start_run(body: StartRunRequest, request: Request) -> AgentRunResponse
         max_budget_usd=body.max_budget_usd,
         permission_mode=settings.agent.permission_mode,
         cwd=settings.agent.cwd,
+        on_event=_make_save_callback(lab.agent_run_store),
     )
 
     # Convert tool hints from request to domain type
@@ -177,9 +180,47 @@ async def stream_events(run_id: str) -> EventSourceResponse:
 # --- Helpers ---
 
 
+async def load_runs(lab: LabEnvironment) -> None:
+    """Load persisted runs from storage into the in-memory cache.
+
+    Called once at app startup. Any run still marked as RUNNING was interrupted
+    by a server restart and is marked FAILED so the UI shows a definitive state.
+    """
+    runs = await lab.agent_run_store.list()
+    for run in runs:
+        if run.status == RunStatus.RUNNING:
+            run.status = RunStatus.FAILED
+            run.error = "Interrupted: server restarted while run was in progress"
+            await lab.agent_run_store.save(run)
+        _runs[run.id] = run
+
+
 async def _run_agent(run: AgentRun, orchestrator: AgentOrchestrator) -> None:
     """Background task that executes the agent."""
     await orchestrator.execute(run)
+
+
+def _make_save_callback(
+    store: AgentRunStore,
+    *,
+    debounce_seconds: float = 5.0,
+) -> OnEventCallback:
+    """Create a debounced on_event callback that persists the run.
+
+    Saves immediately on terminal events (result, error, _flush).
+    Otherwise saves at most once per *debounce_seconds*.
+    """
+    last_save = 0.0
+    _immediate = frozenset({"result", "error", "_flush"})
+
+    async def _on_event(run: AgentRun, event: AgentEvent) -> None:
+        nonlocal last_save
+        now = time.monotonic()
+        if event.event_type in _immediate or (now - last_save) >= debounce_seconds:
+            await store.save(run)
+            last_save = now
+
+    return _on_event
 
 
 def _to_response(run: AgentRun) -> AgentRunResponse:
@@ -200,6 +241,8 @@ def _to_response(run: AgentRun) -> AgentRunResponse:
         started_at=run.started_at.isoformat() if run.started_at else None,
         completed_at=run.completed_at.isoformat() if run.completed_at else None,
         total_cost_usd=run.result.total_cost_usd if run.result else None,
-        num_turns=run.result.num_turns if run.result else 0,
+        num_turns=run.result.num_turns
+        if run.result
+        else sum(1 for e in run.events if e.event_type == "tool_call"),
         error=run.error,
     )
