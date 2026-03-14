@@ -23,30 +23,30 @@ format:
 # ── Running ───────────────────────────────────────────────────────────────────
 
 # Start with stub agent (no API key required)
-run-stub:
-    AGENTML_AGENT__BACKEND=stub uv run agentml start
+run-stub *ARGS:
+    AGENTML_AGENT__BACKEND=stub uv run agentml start {{ARGS}}
 
 # Start with Claude agent (requires ANTHROPIC_API_KEY)
-run-claude:
-    AGENTML_AGENT__BACKEND=claude uv run agentml start
+run-claude *ARGS:
+    AGENTML_AGENT__BACKEND=claude uv run agentml start {{ARGS}}
 
 # Start with stub agent + MLflow tracking (MLflow UI on :8080)
-run-stub-mlflow:
-    uv run mlflow server --backend-store-uri ./mlruns --host 127.0.0.1 --port 8080 &
+run-stub-mlflow *ARGS:
+    PYTHONWARNINGS=ignore::FutureWarning uv run mlflow server --backend-store-uri ./mlruns --host 127.0.0.1 --port 8080 2>/dev/null &
     @sleep 2
     AGENTML_AGENT__BACKEND=stub \
     AGENTML_TRACKING__BACKEND=mlflow \
     AGENTML_TRACKING__MLFLOW_TRACKING_URI=http://127.0.0.1:8080 \
-    uv run agentml start
+    uv run agentml start {{ARGS}}
 
 # Start with Claude agent + MLflow tracking (MLflow UI on :8080)
-run-claude-mlflow:
-    uv run mlflow server --backend-store-uri ./mlruns --host 127.0.0.1 --port 8080 &
+run-claude-mlflow *ARGS:
+    PYTHONWARNINGS=ignore::FutureWarning uv run mlflow server --backend-store-uri ./mlruns --host 127.0.0.1 --port 8080 2>/dev/null &
     @sleep 2
     AGENTML_AGENT__BACKEND=claude \
     AGENTML_TRACKING__BACKEND=mlflow \
     AGENTML_TRACKING__MLFLOW_TRACKING_URI=http://127.0.0.1:8080 \
-    uv run agentml start
+    uv run agentml start {{ARGS}}
 
 # Stop all services (backend :8000, frontend :5173, MLflow :8080)
 stop:

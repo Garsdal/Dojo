@@ -7,6 +7,7 @@ name = "agentml"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "claude-agent-sdk" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pydantic" },
@@ -21,9 +22,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-agent = [
-    { name = "claude-agent-sdk" },
-]
 anthropic = [
     { name = "anthropic" },
 ]
@@ -52,7 +50,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.80" },
-    { name = "claude-agent-sdk", marker = "extra == 'agent'", specifier = ">=0.1" },
+    { name = "claude-agent-sdk", specifier = ">=0.1.48" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "mlflow", marker = "extra == 'dev'", specifier = ">=3.0" },
@@ -72,7 +70,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.15" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
 ]
-provides-extras = ["anthropic", "agent", "mlflow", "dev"]
+provides-extras = ["anthropic", "mlflow", "dev"]
 
 [package.metadata.requires-dev]
 dev = [

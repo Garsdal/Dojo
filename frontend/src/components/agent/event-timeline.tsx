@@ -65,7 +65,7 @@ export function EventTimeline({ events }: EventTimelineProps) {
                 return null;
 
               case "tool_call":
-                if (parsed.kind === "code" || parsed.kind === "json") {
+                if (parsed.kind === "code" || parsed.kind === "json" || parsed.kind === "structured") {
                   return (
                     <EventToolCall
                       key={event.id}

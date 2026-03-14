@@ -83,7 +83,7 @@ export interface LinkingResult {
 
 export interface MetricPoint {
   experiment_id: string;
-  state: string;
+  timestamp: string;
   metrics: Record<string, number>;
 }
 

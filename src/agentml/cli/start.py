@@ -72,6 +72,7 @@ def start(
     no_frontend: bool = typer.Option(
         False, "--no-frontend", help="Skip launching the frontend dev server"
     ),
+    debug: bool = typer.Option(False, "--debug", help="Enable verbose logging"),
 ) -> None:
     """Start the AgentML server."""
     import uvicorn
@@ -121,4 +122,4 @@ def start(
     signal.signal(signal.SIGTERM, shutdown)
 
     app = create_app(settings)
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    uvicorn.run(app, host=host, port=port, log_level="debug" if debug else "warning")

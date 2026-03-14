@@ -19,11 +19,11 @@ dependencies = [
     "structlog>=24.0",
     "python-ulid>=3.0",
     "sse-starlette>=2.0",
+    "claude-agent-sdk>=0.1.48",
 ]
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.80"]
-agent = ["claude-agent-sdk>=0.1"]
 mlflow = ["mlflow>=3.0"]
 dev = [
     "pytest>=8.0",
