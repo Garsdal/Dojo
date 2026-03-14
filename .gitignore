@@ -24,7 +24,7 @@ venv/
 Thumbs.db
 
 # Project
-.agentml/
+.dojo/
 mlruns/
 
 # Frontend

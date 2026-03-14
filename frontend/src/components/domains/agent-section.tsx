@@ -29,7 +29,12 @@ export function AgentSection({ domainId }: AgentSectionProps) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* Prompt form (shown when no active run) */}
+      {!activeRunId && (
+        <AgentPromptForm onSubmit={handleStart} isLoading={isStarting} />
+      )}
+
       {/* New research button when viewing a run */}
       {activeRunId && (
         <div className="flex items-center justify-between">
@@ -46,34 +51,41 @@ export function AgentSection({ domainId }: AgentSectionProps) {
       )}
 
       {/* Run view */}
-      {activeRunId && (
-        <AgentRunView runId={activeRunId} onStop={() => setActiveRunId(null)} />
-      )}
-
-      {/* Prompt form (shown when no active run OR after run completed) */}
-      {!activeRunId && (
-        <AgentPromptForm onSubmit={handleStart} isLoading={isStarting} />
-      )}
+      {activeRunId && <AgentRunView runId={activeRunId} />}
 
       {/* Previous runs */}
       {domainRuns.length > 0 && (
-        <div className="mt-2">
-          <h3 className="text-xs font-semibold text-grey uppercase tracking-wide mb-2 px-1">
+        <div className="mt-4 pt-6 border-t border-soft-fawn/20">
+          <h3 className="text-xs font-semibold text-grey uppercase tracking-wide mb-3 px-1">
             Previous Runs
           </h3>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {domainRuns
               .filter((r) => r.id !== activeRunId)
               .map((run) => (
                 <button
                   key={run.id}
                   onClick={() => setActiveRunId(run.id)}
-                  className="w-full flex items-center justify-between rounded-xl border border-soft-fawn/20 bg-white px-4 py-2.5 text-left text-sm hover:bg-wheat/5 hover:border-soft-fawn/40 transition-all"
+                  className="w-full rounded-xl border border-soft-fawn/20 bg-white px-4 py-3 text-left hover:bg-wheat/5 hover:border-soft-fawn/40 transition-all group"
                 >
-                  <span className="truncate max-w-[60%] text-blackberry text-sm">{run.prompt}</span>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-grey">{run.num_turns} turns</span>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="truncate text-sm font-medium text-blackberry group-hover:text-blackberry/80">
+                      {run.prompt}
+                    </span>
                     <StateBadge state={run.status} />
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-grey">
+                    <span>
+                      {run.num_turns} turn{run.num_turns !== 1 ? "s" : ""}
+                    </span>
+                    {run.total_cost_usd != null && (
+                      <span>${run.total_cost_usd.toFixed(4)}</span>
+                    )}
+                    {run.completed_at && (
+                      <span>
+                        {new Date(run.completed_at).toLocaleDateString()}
+                      </span>
+                    )}
                   </div>
                 </button>
               ))}

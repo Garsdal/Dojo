@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useSWRConfig } from "swr";
 import type { AgentEvent } from "@/types";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
@@ -7,6 +8,23 @@ export function useAgentEvents(runId: string | undefined) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [done, setDone] = useState(false);
   const esRef = useRef<EventSource | null>(null);
+  const { mutate } = useSWRConfig();
+  // Keep mutate in a ref so the SSE closures always use the latest reference
+  const mutateRef = useRef(mutate);
+  mutateRef.current = mutate;
+
+  const revalidate = useCallback(() => {
+    void mutateRef.current(
+      (key) =>
+        typeof key === "string" &&
+        (key.startsWith("/experiments") ||
+          key.startsWith("/domains") ||
+          key.startsWith("/knowledge") ||
+          key.startsWith("/agent")),
+      undefined,
+      { revalidate: true },
+    );
+  }, []);
 
   useEffect(() => {
     if (!runId) return;
@@ -26,13 +44,19 @@ export function useAgentEvents(runId: string | undefined) {
       }
     };
 
+    const handleToolResult = (e: MessageEvent) => {
+      handleEvent(e);
+      revalidate();
+    };
+
     es.addEventListener("tool_call", handleEvent);
-    es.addEventListener("tool_result", handleEvent);
+    es.addEventListener("tool_result", handleToolResult);
     es.addEventListener("text", handleEvent);
     es.addEventListener("error", handleEvent);
     es.addEventListener("result", handleEvent);
     es.addEventListener("done", () => {
       setDone(true);
+      revalidate();
       es.close();
     });
     es.onerror = () => {
@@ -41,7 +65,7 @@ export function useAgentEvents(runId: string | undefined) {
     };
 
     return () => es.close();
-  }, [runId]);
+  }, [runId, revalidate]);
 
   return { events, done };
 }

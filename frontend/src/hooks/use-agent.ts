@@ -9,7 +9,7 @@ export function useAgentRuns() {
   );
 }
 
-// Get single run (poll while running)
+// Get single run (poll while running for status updates)
 export function useAgentRun(id: string | undefined) {
   return useSWR<AgentRun>(
     id ? `/agent/runs/${id}` : null,

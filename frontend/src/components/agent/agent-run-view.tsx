@@ -8,18 +8,15 @@ import { Square } from "lucide-react";
 
 interface AgentRunViewProps {
   runId: string;
-  onStop?: () => void;
 }
 
-export function AgentRunView({ runId, onStop }: AgentRunViewProps) {
+export function AgentRunView({ runId }: AgentRunViewProps) {
   const { data: run, mutate } = useAgentRun(runId);
   const { events } = useAgentEvents(runId);
 
   if (!run) {
     return (
-      <div className="py-8 text-center text-sm text-grey">
-        Loading run…
-      </div>
+      <div className="py-8 text-center text-sm text-grey">Loading run…</div>
     );
   }
 
@@ -29,7 +26,6 @@ export function AgentRunView({ runId, onStop }: AgentRunViewProps) {
   const handleStop = async () => {
     await stopAgentRun(runId);
     void mutate();
-    onStop?.();
   };
 
   return (
@@ -41,7 +37,8 @@ export function AgentRunView({ runId, onStop }: AgentRunViewProps) {
           {run.num_turns > 0 && (
             <span className="text-xs text-grey">
               {run.num_turns} turn{run.num_turns !== 1 ? "s" : ""}
-              {run.total_cost_usd != null && ` · $${run.total_cost_usd.toFixed(4)}`}
+              {run.total_cost_usd != null &&
+                ` · $${run.total_cost_usd.toFixed(4)}`}
             </span>
           )}
         </div>
@@ -65,8 +62,12 @@ export function AgentRunView({ runId, onStop }: AgentRunViewProps) {
       {/* Error display */}
       {run.error && (
         <div className="bg-danger/5 border border-danger/20 rounded-xl px-4 py-3">
-          <div className="text-xs text-danger font-semibold mb-1">Run Error</div>
-          <pre className="text-xs text-danger font-mono whitespace-pre-wrap">{run.error}</pre>
+          <div className="text-xs text-danger font-semibold mb-1">
+            Run Error
+          </div>
+          <pre className="text-xs text-danger font-mono whitespace-pre-wrap">
+            {run.error}
+          </pre>
         </div>
       )}
     </div>
