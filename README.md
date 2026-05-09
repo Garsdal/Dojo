@@ -61,72 +61,76 @@ pip install dojoml
 
 ---
 
-## Quickstart — California Housing in 3 commands
+## Quickstart — `dojo onboard`
+
+`dojo onboard` is the recommended entry point. Run it inside an existing
+Python project — it adds `.dojo/` next to your code, reuses your
+`pyproject.toml` / `requirements.txt` for dependencies, and walks you
+through everything else:
+
+```bash
+cd path/to/your/python/project
+uv tool install dojoml          # one-time
+dojo onboard                    # answers a few questions, generates load_data + evaluate, freezes the task
+dojo run                        # the agent starts running experiments
+```
+
+That's it. Your research lives at `.dojo/` in the project (knowledge,
+runs, frozen tools), and your code stays where it always was. `dojo onboard`
+asks for:
+
+- the agent + tracking + linker backends (sensible defaults — hit enter)
+- a domain name + description
+- your research goal, target, success criteria (PROGRAM.md)
+- where the data lives + how evaluation should work (SETUP.md)
+
+It then runs the AI tool generator, verifies `load_data` + `evaluate`
+against the frozen regression contract, and freezes the task. If the
+verifier hits a missing import, onboard offers to install it into the
+workspace venv and retries automatically.
+
+### Don't have a project yet? Try a preset
+
+If you just want to see Dojo work end-to-end on a canned dataset:
 
 ```bash
 mkdir housing && cd housing
-
-# 1. Scaffold the domain (creates .dojo/, the regression Task, PROGRAM.md, SETUP.md)
-dojo init --name housing --task-type regression --non-interactive
-
-# 2. Describe the research goal, target, success
-$EDITOR PROGRAM.md
-
-# 3. Describe the dataset and evaluation (read once by `dojo task setup`)
-$EDITOR SETUP.md
-
-# 4. AI generates load_data + evaluate from SETUP.md, verifies them against
-#    the regression contract, and freezes the task. Re-run after edits.
-dojo task setup
-
-# 5. Run the agent — events stream live to your terminal
+dojo onboard --preset california_housing   # ready-to-run PROGRAM.md + SETUP.md
 dojo run --max-turns 30
 ```
 
-> **If the AI keeps generating the wrong adapters** (verification failures
-> on real-world pipelines, e.g. unusual pandas multi-indexes, custom dataset
-> APIs, or wrapping an existing evaluator), use Opus 4.7 for tool generation
-> instead of the default Sonnet:
+The `california_housing` preset uses `sklearn.datasets.fetch_california_housing`
+and pre-installs `scikit-learn`, `pandas`, `numpy`, `matplotlib` into a
+fresh venv. More presets coming.
+
+### Scripted setup (`dojo init`)
+
+For CI or non-interactive use where prompts aren't acceptable, the older
+four-step path is still available:
+
+```bash
+dojo init --name housing --task-type regression --non-interactive
+$EDITOR PROGRAM.md SETUP.md
+dojo task setup
+dojo run
+```
+
+> **If the AI keeps generating the wrong adapters** on real-world
+> pipelines (unusual pandas multi-indexes, custom dataset APIs, wrapping
+> an existing evaluator), set Opus 4.7 as the tool-generation model:
 >
 > ```bash
 > DOJO_AGENT__TOOL_GENERATION_MODEL=claude-opus-4-7 dojo task setup
 > ```
 >
-> Opus is slower (~30–60s vs 15–30s) but noticeably better at translating a
-> messy `SETUP.md` into correct `load_data` / `evaluate` modules. Set it
-> permanently in `.dojo/config.yaml` under `agent.tool_generation_model` if
-> you want it as the default.
-
-A reasonable starter `PROGRAM.md` for California housing:
-
-```markdown
-## Goal
-Predict California median house value (regression). Minimise RMSE on a 20% held-out test split.
-
-## Target
-Median house value (in $100,000s) for census blocks in California.
-
-## Success
-Beat a linear baseline. Try at least one tree-based model. Avoid overfitting.
-```
-
-A reasonable starter `SETUP.md`:
-
-```markdown
-## Dataset
-Use `sklearn.datasets.fetch_california_housing(return_X_y=True)`.
-Features and target both come back as numpy arrays — no column names needed.
-https://scikit-learn.org/stable/modules/generated/sklearn.datasets.fetch_california_housing.html
-
-## Evaluate
-Use sklearn's mean_squared_error / r2_score / mean_absolute_error against y_test.
-Save a residuals scatter plot to artifacts_dir/residuals.png.
-```
+> Opus is slower (~30–60s vs 15–30s) but noticeably better at translating
+> a messy `SETUP.md` into correct `load_data` / `evaluate` modules. Set it
+> permanently in `.dojo/config.yaml` under `agent.tool_generation_model`.
 
 What happens under the hood:
 
-- **`dojo init`** writes `.dojo/config.yaml`, creates the domain + regression task with `expected_metrics = [rmse, r2, mae]`, scaffolds `PROGRAM.md` and `SETUP.md`, and sets `current_domain_id`.
-- **`dojo task setup`** reads `SETUP.md`, asks the AI to generate `load_data` + `evaluate`, runs each tool in a sandbox against its `ToolContract`, and freezes the task. Verification failures tell you which tool failed and why — fix `SETUP.md` (or the tool code) and re-run.
+- **`dojo onboard` / `dojo init`** writes `.dojo/config.yaml`, creates the domain + regression task with `expected_metrics = [rmse, r2, mae]`, scaffolds `PROGRAM.md` and `SETUP.md`, and sets `current_domain_id`.
+- **`dojo task setup`** reads `SETUP.md`, asks the AI to generate `load_data` + `evaluate`, runs each tool in a sandbox against its `ToolContract`, and freezes the task. Verification failures tell you which tool failed and why — fix `SETUP.md` (or the tool code) and re-run. (`dojo onboard` runs this automatically as its last step.)
 - **`dojo run`** starts the agent in-process. The agent writes training code; `load_data` and `evaluate` stay frozen. The metric dict from `evaluate` is the only source of truth — `complete_experiment` rejects metric keys outside the contract, so the agent can't smuggle in custom numbers.
 
 Useful neighbours:

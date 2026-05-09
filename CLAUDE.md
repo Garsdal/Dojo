@@ -6,7 +6,7 @@
 
 ## How to read this file
 
-1. **[The product in 3 commands](#the-product-in-3-commands)** — the user-visible UX. Start here. Internalise this before touching anything: `dojo init` → edit `PROGRAM.md` + `SETUP.md` → `dojo task setup` → `dojo run`. Everything else in this codebase exists to make those four steps work and to let us swap implementations underneath.
+1. **[The product in 2 commands](#the-product-in-2-commands)** — the user-visible UX. Start here. Internalise this before touching anything: `cd <project>` → `dojo onboard` → `dojo run`. The four-step path (`dojo init` → edit `PROGRAM.md` + `SETUP.md` → `dojo task setup` → `dojo run`) is the same flow for non-interactive / scripted use. Everything else in this codebase exists to make those steps work and to let us swap implementations underneath.
 2. **[Core vs swappable adapters](#core-vs-swappable-adapters)** — what is the product (must not break) vs what is plumbing (designed to be replaced). Use this to judge "should this change live in the core, or behind an adapter?"
 3. **[Quick commands](#quick-commands)** — tests, lint, run, **and release**. We work toward releases often: a typical session ends with a version bump, changelog entry, and tag push. The release flow is documented inline in [Releasing](#releasing).
 4. **The rest of the file** is reference: architecture diagram, directory map, domain model, recipes, conventions. Skim by section heading; don't read top-to-bottom.
@@ -15,16 +15,30 @@ For vision/strategy, see [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md). For the lon
 
 ---
 
-## The product in 3 commands
+## The product in 2 commands
 
 This is what a user does. Nothing else should leak into their experience.
 
 ```bash
-dojo init --name my-domain --task-type regression   # 1. scaffold .dojo/ + PROGRAM.md + SETUP.md
-$EDITOR PROGRAM.md                                   #    research goal / target / success
-$EDITOR SETUP.md                                     #    dataset + evaluation spec
-dojo task setup                                      # 2. AI generates load_data + evaluate, verifies, freezes
-dojo run                                             # 3. agent runs experiments against the frozen contract
+cd path/to/their/python/project
+dojo onboard                                         # 1. guided: config + domain + workspace + PROGRAM.md + SETUP.md + AI tool gen + verify + freeze
+dojo run                                             # 2. agent runs experiments against the frozen contract
+```
+
+`dojo onboard` is interactive and is the recommended entry point. It
+walks the user through the config knobs, domain creation, line-by-line
+PROGRAM.md / SETUP.md prompting (or a sklearn `--preset` flag for the
+fresh-tire-kicker case), then inline AI tool generation + verification
+(with auto-install on `ModuleNotFoundError`) + freeze.
+
+For non-interactive / scripted use the older four-step path stays
+available — it's what `dojo init` is for now:
+
+```bash
+dojo init --name my-domain --task-type regression --non-interactive
+$EDITOR PROGRAM.md SETUP.md
+dojo task setup
+dojo run
 ```
 
 That's the whole package, from a user's perspective. The user **never needs to know** there's a `LabEnvironment`, a `TaskService`, a `ComputeBackend`, an MCP server, an `AgentBackend`, or storage adapters. Those exist for *us* — so we can swap the agent (Claude → another model), the storage layer (local JSON → Postgres), the tracking backend (file → MLflow), or the sandbox (subprocess → Docker) without touching the user-facing flow above.
@@ -49,7 +63,7 @@ When you're about to add code, ask: "is this the product, or is it a wrapper tha
 | Where | What it owns |
 |---|---|
 | [src/dojo/core/](src/dojo/core/) | Pure domain models: `Domain`, `Task`, `Workspace`, `Experiment`, `KnowledgeAtom`, state machines. No I/O. The conceptual model of Dojo. |
-| [src/dojo/cli/](src/dojo/cli/) | The user-facing surface: `init`, `run`, `task`, `program`, `runs`, `experiments`, `stop`, `start`, `config`, `domain`. This is what the user sees. |
+| [src/dojo/cli/](src/dojo/cli/) | The user-facing surface: `onboard` (recommended), `init` (scripted), `run`, `task`, `program`, `runs`, `experiments`, `stop`, `start`, `config`, `domain`. This is what the user sees. |
 | [src/dojo/runtime/](src/dojo/runtime/) | Lifecycle services: `TaskService` (create/freeze/verify), `ExperimentService`, `WorkspaceService`, `runner.py` (the runner stub that wires `train()` ↔ `evaluate()`), `tool_verifier.py`. These enforce the frozen-contract guarantee. |
 | [src/dojo/agents/](src/dojo/agents/) | `AgentOrchestrator`, `AgentRun`, system prompts, end-of-run knowledge summarizer. The orchestration logic *is* the product — agent backends underneath are swappable. |
 | [src/dojo/tools/](src/dojo/tools/) | The MCP tool surface the agent sees: `run_experiment`, `write_knowledge`, `complete_experiment`, etc. Changing a tool's name or description changes user-visible agent behaviour. |

@@ -34,6 +34,30 @@ def test_memory_custom_limit() -> None:
     assert m.search_limit == 25
 
 
+def test_settings_tolerates_removed_blocks_in_yaml(tmp_path) -> None:
+    """A stale `llm:` block from a pre-v0.0.16 config must not crash load.
+
+    Regression: before adding `extra="ignore"` to the Settings model_config,
+    users with an old `.dojo/config.yaml` hit a hard ValidationError on
+    first run after upgrading because pydantic-settings rejected the
+    unknown top-level `llm` key.
+    """
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        """\
+llm:
+  provider: stub
+  model: stub
+tracking:
+  backend: file
+"""
+    )
+    # Must not raise — the `llm` block is silently dropped.
+    s = Settings.load(config_path=config)
+    assert s.tracking.backend == "file"
+    assert not hasattr(s, "llm")
+
+
 def test_settings_from_yaml(tmp_path) -> None:
     config = tmp_path / "config.yaml"
     config.write_text(

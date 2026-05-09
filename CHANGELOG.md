@@ -13,6 +13,28 @@ for the release workflow.
 
 ## [Unreleased]
 
+## [v0.0.16] - 2026-05-09
+
+### Agent prompts
+
+(none in this release)
+
+### Added
+
+- **`dojo onboard`** ([src/dojo/cli/onboard.py](src/dojo/cli/onboard.py)) — guided, all-in-one setup that gets a user from zero to runnable in one command. Designed for the canonical "I'm already in my Python project" workflow: `cd path/to/your/python/project && dojo onboard`. The flow walks through config knobs (agent / tracking / linker backends with sensible defaults), domain creation, line-by-line PROGRAM.md / SETUP.md filling, then inline AI tool generation + verification + freeze — leaving the user one command away from `dojo run`. Multi-choice prompts use arrow-key selectors via [simple-term-menu](https://github.com/IngoMeyer441/simple-term-menu) with descriptive labels (e.g. "Use existing" / "Overwrite" / "Abort" instead of `[u/o/a]`); a Rich text-input fallback covers non-TTY contexts so CI / scripted callers still work. Auto-installs missing modules into the workspace venv on `ModuleNotFoundError` (with confirmation), retries verification up to 3 times, and shows a softened heads-up when run from inside the cloned Dojo source tree (proceed-by-default for Dojo developers smoke-testing locally). (#13)
+- **`--preset california_housing` flag for `dojo onboard`** — for users without an existing project who want to see Dojo work end-to-end on a canned sklearn dataset. Writes a ready-to-run PROGRAM.md / SETUP.md and pre-installs preset deps (`scikit-learn`, `pandas`, `numpy`, `matplotlib`) into a fresh venv. Preset registry lives in [src/dojo/runtime/onboard_helpers.py](src/dojo/runtime/onboard_helpers.py); adding more presets (diabetes, breast_cancer, wine, etc.) is a single dict entry. (#13)
+- **`dojo.runtime.setup_orchestrator`** ([src/dojo/runtime/setup_orchestrator.py](src/dojo/runtime/setup_orchestrator.py)) — shared async helpers (`build_workspace_from_arg`, `build_task_config`, `create_domain_with_workspace`, `create_regression_task`) used by both `dojo init` and `dojo onboard` so the two CLI entry points can't drift on domain / workspace / task creation. (#13)
+
+### Changed
+
+- **README restructured around `dojo onboard`** ([README.md](README.md)) — quickstart now leads with `cd <existing project> && dojo onboard && dojo run` (the dominant workflow). The `--preset` path moves to a "Don't have a project yet?" subsection, and `dojo init` is demoted to "scripted setup for CI". Starter PROGRAM.md / SETUP.md examples that used to live in the README are now the source of the `california_housing` preset — single source of truth, no drift. (#13)
+- **CLAUDE.md "The product in 2 commands"** — top-level snippet updated to show `dojo onboard` → `dojo run` as the primary path; the four-step `init + edit + task setup + run` flow is preserved as the scripted alternative. (#13)
+- **`dojo init`** ([src/dojo/cli/init.py](src/dojo/cli/init.py)) — domain / workspace / task creation extracted into the shared `setup_orchestrator` helpers; behaviour unchanged. The "next steps" footer now points new users at `dojo onboard` for friendlier first-time setup. (#13)
+
+### Removed
+
+- **`LLMSettings` and `Settings.llm`** ([src/dojo/config/settings.py](src/dojo/config/settings.py)) — dead config block (`provider` / `model` / `api_key`) that no code consumed except the `/config` endpoint that echoed it back to the frontend. Provider selection lives on `agent.backend`; the model used for one-shot completions lives on `agent.tool_generation_model` (and `memory.llm_linker_model` for the LLM linker added in v0.0.15). The `/config` response no longer includes `llm`, and newly-written `.dojo/config.yaml` files no longer contain the `llm:` block. The `Settings` model now uses `extra="ignore"` so users with a stale `llm:` block from a pre-v0.0.16 config don't hit a hard `ValidationError` on first run after upgrading — the block is silently dropped. (#14)
+
 ## [v0.0.15] - 2026-05-09
 
 ### Agent prompts

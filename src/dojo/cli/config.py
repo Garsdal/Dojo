@@ -26,10 +26,6 @@ api:
   host: "127.0.0.1"
   port: 8000
 
-llm:
-  provider: "stub"
-  model: "stub"
-
 sandbox:
   # Per-experiment wall-clock cap for `run_experiment` subprocesses.
   timeout: 300.0
