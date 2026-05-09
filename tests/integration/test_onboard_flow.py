@@ -119,6 +119,55 @@ def test_onboard_preset_runs_end_to_end(onboard_dir: Path):
     assert "fetch_california_housing" in setup
 
 
+def test_select_is_coroutine_so_it_works_inside_asyncio_run() -> None:
+    """Regression: questionary's sync `.ask()` starts a nested asyncio loop.
+
+    Inside `_onboard_async` (driven by `asyncio.run`) that raises
+    `RuntimeError: asyncio.run() cannot be called from a running event loop`.
+    `_select` must be a coroutine using `.ask_async()` so it joins the
+    surrounding loop instead of starting its own.
+    """
+    import inspect
+
+    from dojo.cli.onboard import _select
+
+    assert inspect.iscoroutinefunction(_select), (
+        "_select must be async to avoid nested asyncio.run() inside questionary"
+    )
+
+
+def test_resolve_install_cmd_prefers_uv_when_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: uv-managed venvs don't ship pip, so `python -m pip install`
+    crashes with `No module named pip`. Use `uv pip install --python <path>`
+    when uv is available."""
+    import shutil
+
+    from dojo.cli.onboard import _resolve_install_cmd
+
+    monkeypatch.setattr(shutil, "which", lambda name: "/fake/uv" if name == "uv" else None)
+    cmd = _resolve_install_cmd("/path/to/python", ["matplotlib", "scikit-learn"])
+    assert cmd == [
+        "/fake/uv",
+        "pip",
+        "install",
+        "--python",
+        "/path/to/python",
+        "matplotlib",
+        "scikit-learn",
+    ]
+
+
+def test_resolve_install_cmd_falls_back_to_python_pip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When uv isn't on PATH (rare), fall back to `python -m pip install`."""
+    import shutil
+
+    from dojo.cli.onboard import _resolve_install_cmd
+
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    cmd = _resolve_install_cmd("/path/to/python", ["matplotlib"])
+    assert cmd == ["/path/to/python", "-m", "pip", "install", "matplotlib"]
+
+
 def test_onboard_unknown_preset_errors_fast(onboard_dir: Path):
     runner = CliRunner()
     result = runner.invoke(app, ["onboard", "--preset", "not_a_real_preset"])

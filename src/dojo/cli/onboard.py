@@ -75,7 +75,7 @@ def _use_arrow_selectors() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-def _select(
+async def _select(
     question: str,
     choices: list[tuple[str, str]],
     *,
@@ -85,15 +85,19 @@ def _select(
 
     `choices` is a list of `(display_label, value)` tuples; `default` is the
     value (not the label) that should be pre-selected. Returns the chosen value.
+
+    Async because questionary's sync `.ask()` starts its own asyncio loop
+    internally, which conflicts with the surrounding `asyncio.run` driving
+    `_onboard_async`. Using `.ask_async()` joins the current loop instead.
     """
     if _use_arrow_selectors():
         display_to_value = {label: value for label, value in choices}
         default_label = next((label for label, value in choices if value == default), None)
-        answer = questionary.select(
+        answer = await questionary.select(
             question,
             choices=list(display_to_value.keys()),
             default=default_label,
-        ).ask()
+        ).ask_async()
         if answer is None:
             # Ctrl-C / Ctrl-D inside questionary returns None.
             raise typer.Exit(code=0)
@@ -168,7 +172,7 @@ async def _onboard_async(
     _check_cwd_footgun(cwd)
 
     # ---- 2. Existing .dojo/ check -------------------------------------------
-    if not _handle_existing_dojo_dir(config_dir):
+    if not await _handle_existing_dojo_dir(config_dir):
         raise typer.Exit(code=0)
 
     # ---- 3. Workspace + dep-source preview (no prompt) ----------------------
@@ -181,7 +185,7 @@ async def _onboard_async(
 
     # ---- 4. Config decisions ------------------------------------------------
     config_path = _bootstrap_config(config_dir)
-    _prompt_config_choices(config_path)
+    await _prompt_config_choices(config_path)
 
     lab, settings = build_cli_lab()
     console.print(f"[green]✓[/green] config ready at {config_path}")
@@ -192,7 +196,7 @@ async def _onboard_async(
     description = Prompt.ask("[bold]Description (optional)[/bold]", default="")
 
     # ---- 6. Preset vs. custom branch ---------------------------------------
-    program_md, setup_md, preset = _resolve_program_and_setup(
+    program_md, setup_md, preset = await _resolve_program_and_setup(
         preset_key=preset_key, domain_name=domain_name, description=description
     )
 
@@ -301,7 +305,7 @@ def _check_cwd_footgun(cwd: Path) -> None:
             raise typer.Exit(code=0)
 
 
-def _handle_existing_dojo_dir(config_dir: Path) -> bool:
+async def _handle_existing_dojo_dir(config_dir: Path) -> bool:
     """Return True to proceed, False to abort (caller exits)."""
     if not config_dir.exists() or not any(config_dir.iterdir()):
         return True
@@ -309,7 +313,7 @@ def _handle_existing_dojo_dir(config_dir: Path) -> bool:
         f"[yellow]existing[/yellow] [cyan]{config_dir}[/cyan] directory found "
         "with Dojo state in it."
     )
-    choice = _select(
+    choice = await _select(
         "What should I do with it?",
         choices=[
             ("Use existing", "u"),
@@ -364,7 +368,7 @@ def _bootstrap_config(config_dir: Path) -> Path:
     return config_path
 
 
-def _prompt_config_choices(config_path: Path) -> None:
+async def _prompt_config_choices(config_path: Path) -> None:
     """Walk the user through the config knobs that meaningfully change behaviour.
 
     Each prompt has a sensible default the user can accept by hitting enter.
@@ -374,7 +378,7 @@ def _prompt_config_choices(config_path: Path) -> None:
     console.print()
     console.print("[bold]Config[/bold] — pick or accept the highlighted default.")
 
-    agent_backend = _select(
+    agent_backend = await _select(
         "Agent backend",
         choices=[
             ("Claude (uses your local `claude` CLI auth)", "claude"),
@@ -382,7 +386,7 @@ def _prompt_config_choices(config_path: Path) -> None:
         ],
         default="claude",
     )
-    tracking_backend = _select(
+    tracking_backend = await _select(
         "Tracking backend",
         choices=[
             ("File (write metrics to local JSON)", "file"),
@@ -395,7 +399,7 @@ def _prompt_config_choices(config_path: Path) -> None:
     if tracking_backend == "mlflow":
         mlflow_uri = Prompt.ask("MLflow tracking URI", default="file:./mlruns")
         mlflow_experiment = Prompt.ask("MLflow experiment name", default="dojo")
-    linker = _select(
+    linker = await _select(
         "Knowledge linker (how RELATED_TO links between knowledge atoms are picked)",
         choices=[
             ("Keyword (free, fast, default)", "keyword"),
@@ -445,7 +449,7 @@ def _patch_config_full(
     config_path.write_text(yaml.safe_dump(data, sort_keys=True))
 
 
-def _resolve_program_and_setup(
+async def _resolve_program_and_setup(
     *, preset_key: str | None, domain_name: str, description: str
 ) -> tuple[str, str, object | None]:
     """Return (program_md, setup_md, preset_or_None).
@@ -471,7 +475,7 @@ def _resolve_program_and_setup(
         ]
         for key in sorted(PRESETS.keys()):
             preset_choices.append((PRESETS[key].label, key))
-        choice = _select(
+        choice = await _select(
             "How would you like to set up PROGRAM.md + SETUP.md?",
             choices=preset_choices,
             default="custom",
@@ -514,24 +518,39 @@ class _FakeDomain:
 
 
 def _pip_install_into_workspace(*, python_path: str, modules: list[str], label: str) -> None:
-    """Install modules into the workspace's venv. Warn (don't raise) on failure."""
+    """Install modules into the workspace's venv. Warn (don't raise) on failure.
+
+    Prefers `uv pip install --python <path>` when uv is on PATH — Dojo's
+    `WorkspaceService` uses uv to create venvs from `pyproject.toml`, and
+    those venvs don't ship pip by default, so `python -m pip install` would
+    crash with `No module named pip`. Falls back to `python -m pip install`
+    only when uv isn't available.
+    """
     if not modules:
         return
     console.print(f"[dim]{label}...[/dim]")
-    cmd = [python_path, "-m", "pip", "install", *modules]
+    cmd = _resolve_install_cmd(python_path, modules)
     try:
         result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as e:
-        console.print(f"[yellow]warning:[/yellow] pip install failed to start: {e}")
+        console.print(f"[yellow]warning:[/yellow] install failed to start: {e}")
         return
     if result.returncode != 0:
         tail = (result.stderr or result.stdout).strip().splitlines()[-3:]
         console.print(
-            f"[yellow]warning:[/yellow] pip install exited {result.returncode}; "
+            f"[yellow]warning:[/yellow] install exited {result.returncode}; "
             f"continuing. Last lines:\n  " + "\n  ".join(tail)
         )
         return
     console.print(f"[green]✓[/green] installed: {', '.join(modules)}")
+
+
+def _resolve_install_cmd(python_path: str, modules: list[str]) -> list[str]:
+    """Pick the right install command for the workspace venv."""
+    uv_bin = shutil.which("uv")
+    if uv_bin:
+        return [uv_bin, "pip", "install", "--python", python_path, *modules]
+    return [python_path, "-m", "pip", "install", *modules]
 
 
 async def _generate_and_verify_with_retries(*, lab: LabEnvironment, domain: Domain) -> bool:
