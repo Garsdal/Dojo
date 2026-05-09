@@ -32,33 +32,36 @@ Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) 
 
 ---
 
-## Current Status
+## Status
 
 > **⚠️ Proof of Concept** — under active development. Open source. Single-tenant, local-first, by design.
 
 - **Agent**: Claude Agent SDK (uses your local `claude` CLI auth — no API key needed for runs)
-- **Compute**: Local only (in-process / subprocess) — your data stays on your machine
-- **Storage**: Local JSON files in `.dojo/`
-- **Tracking**: File-based or MLflow (sits on top of an MLflow you already run)
+- **Storage**: Local JSON files in `.dojo/` — your data stays on your machine
 - **Tasks supported**: `RegressionTask` (more types to come once regression is solid)
 
 ---
 
-## Prerequisites
+## Install
 
-- Python 3.13+
-- [uv](https://docs.astral.sh/uv/)
-- [just](https://github.com/casey/just)
-- The `claude` CLI logged in (Claude Code) — Dojo shells out to it; no `ANTHROPIC_API_KEY` needed
-- Node.js 18+ (only if you want the web UI)
+The package on PyPI is [`dojoml`](https://pypi.org/project/dojoml/); the CLI binary it installs is `dojo`.
 
 ```bash
-just dev                     # install backend + frontend deps
+uv tool install dojoml         # recommended — isolated, on your PATH
+# or
+pipx install dojoml
+# or
+pip install dojoml
 ```
 
-## Getting Started — California Housing in 4 commands
+**Prerequisites:**
 
-The CLI is a peer of the HTTP API, not a thin wrapper around it. The whole happy path runs in-process — no server needed.
+- Python 3.13+
+- The `claude` CLI logged in ([Claude Code](https://docs.claude.com/claude-code)) — Dojo shells out to it; no `ANTHROPIC_API_KEY` needed for agent runs.
+
+---
+
+## Quickstart — California Housing in 3 commands
 
 ```bash
 mkdir housing && cd housing
@@ -175,6 +178,34 @@ Everything written to `artifacts_dir` is:
 1. Copied into the durable Dojo archive at `.dojo/artifacts/experiments/{eid}/...`.
 2. Forwarded to the active tracking backend (`MlflowTracker.log_artifact` uploads to MLflow; `FileTracker` records a reference; `NoopTracker` drops it).
 
+## Configuration
+
+Create `.dojo/config.yaml` in your project root:
+
+```yaml
+agent:
+  backend: claude      # "stub" (no LLM, deterministic) or "claude"
+tracking:
+  backend: file        # "file" or "mlflow"
+```
+
+Or override via environment variables (note the **double underscore** for nested fields):
+
+```bash
+DOJO_AGENT__BACKEND=claude
+DOJO_TRACKING__BACKEND=mlflow
+```
+
+## Web UI / HTTP API (optional)
+
+```bash
+dojo start                   # FastAPI server on http://localhost:8000
+```
+
+The server reads the same `.dojo/` your CLI commands write to, so a CLI-started run is visible to the API and vice versa.
+
+> **Note:** the React frontend is **not bundled in the PyPI release yet**. If you want the web UI, run it from a checkout — see [Development](#development) below.
+
 ### Migrating from v0.0.10
 
 If your domain has a v0.0.10 `PROGRAM.md` with mixed Goal/Dataset/Evaluate content:
@@ -183,71 +214,42 @@ If your domain has a v0.0.10 `PROGRAM.md` with mixed Goal/Dataset/Evaluate conte
 2. Trim `PROGRAM.md` to `## Goal`, `## Target`, `## Success`, `## Notes`.
 3. Run `dojo task setup` again — the regression contract is now v4 (train receives `artifacts_dir`), so any frozen task needs re-verification anyway.
 
-## Running the server (optional)
+---
 
-If you want the web UI or HTTP API:
+## Development
+
+Most of the contributor reference lives in [CLAUDE.md](CLAUDE.md) (architecture, directory map, "how do I add X" recipes, conventions). This section is the minimum to clone and run tests.
+
+**Additional prerequisites for the dev path:**
+
+- [uv](https://docs.astral.sh/uv/)
+- [just](https://github.com/casey/just)
+- Node.js 18+ (only if you want to run the web UI)
 
 ```bash
-just run-stub                # stub agent (no LLM, deterministic)
-just run-claude              # Claude agent (uses your local CLI auth)
+git clone https://github.com/Garsdal/Dojo.git && cd Dojo
+just dev                     # install backend + frontend deps
+just test                    # run the test suite
+just lint                    # ruff check
+just format                  # auto-fix lint + format
 ```
 
-Backend → `http://localhost:8000` · Frontend → `http://localhost:5173`. The server reads the same `.dojo/` your CLI commands write to, so a CLI-started run is visible in the UI and vice versa.
-
----
-
-## Config
-
-Create `.dojo/config.yaml` in your project root:
-
-```yaml
-agent:
-  backend: stub        # "stub" (no LLM) or "claude"
-tracking:
-  backend: file        # "file" or "mlflow"
-```
-
-Or use environment variables:
+For the full server + web UI dev loop:
 
 ```bash
-DOJO_AGENT__BACKEND=claude
-DOJO_TRACKING__BACKEND=mlflow
+just run-stub                # API + frontend with the stub agent (no LLM, deterministic)
+just run-claude              # API + frontend with the Claude agent
 ```
 
----
+Backend → `http://localhost:8000` · Frontend → `http://localhost:5173`.
 
-## Tests
+### Pointers
 
-```bash
-just test       # all tests
-just lint       # ruff check
-just format     # auto-fix lint + format
-```
+- [CLAUDE.md](CLAUDE.md) — architecture, directory map, conventions, recipes.
+- [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md) — vision and the typed-Task design.
+- [docs/RELEASING.md](docs/RELEASING.md) — release flow.
 
----
-
-## Project Structure
-
-```
-src/dojo/
-  core/         # Domain, Task, Experiment, KnowledgeAtom, Workspace, state machine
-  agents/       # AgentBackend ABC + Claude / Stub backends, orchestrator
-  api/          # FastAPI app + routers (/domains, /experiments, /knowledge, /agent)
-  cli/          # Typer CLI: init, run, task, runs, program, domain, config, start
-  tools/        # Agent tools (experiments, knowledge, tracking) + AI tool generation
-  runtime/      # LabEnvironment (DI), ExperimentService, ToolVerifier, program loader
-  sandbox/      # LocalSandbox (subprocess); runs generated tools + agent code
-  compute/      # Compute backends (LocalCompute today)
-  storage/      # Local JSON adapters (domain, experiment, knowledge, run)
-  tracking/     # FileTracker, MlflowTracker, NoopTracker
-  config/       # pydantic-settings + YAML config
-frontend/       # React 19 + Vite 7 + shadcn/ui (currently de-prioritized)
-tests/          # unit, integration, e2e
-```
-
----
-
-## Key API Endpoints
+### HTTP API endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -261,5 +263,3 @@ tests/          # unit, integration, e2e
 | `GET` | `/experiments?domain_id=` | List experiments |
 | `GET` | `/knowledge?domain_id=` | List knowledge atoms |
 | `GET` | `/health` | Health check |
-
-For architecture, conventions, and "how do I add X" recipes, see [CLAUDE.md](CLAUDE.md). For vision and the typed-Task design, see [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md). For the ordered delivery punch-list, see [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md). For the PyPI release process, see [docs/RELEASING.md](docs/RELEASING.md).

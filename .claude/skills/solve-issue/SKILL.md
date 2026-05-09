@@ -183,5 +183,5 @@ Return:
 
 ## After merge (informational, not part of this skill's runtime)
 
-- The `Closes #<N>` line auto-closes the issue.
-- Tag/release for Dojo happens via the release prompt in `docs/RELEASING.md` after merge — that's a separate manual step the user runs when they're ready to ship.
+- The `Closes #<N>` line auto-closes the issue **most of the time**, but it can silently fail (squash-merge dropping the keyword, the keyword landing inside a code block, typos). Don't trust it blindly — verify after merge that linked issues are actually CLOSED.
+- Tag/release happens after merge — for Dojo, see the release prompt in `docs/RELEASING.md`. The `ship-it` skill drives this automatically as Step 4 when invoked at the post-merge stage; standalone `solve-issue` runs stop at "PR open" and leave the release to the user.
