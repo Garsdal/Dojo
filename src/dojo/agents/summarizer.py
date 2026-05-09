@@ -16,9 +16,9 @@ logger = get_logger(__name__)
 # trust calibration alone.
 _CONFIDENCE_FLOOR = 0.5
 
-# Hard cap on flush output. The prompt asks for 3-5; this stops the model from
+# Hard cap on flush output. The prompt asks for 3-7; this stops the model from
 # returning a larger list when it disregards the instruction.
-_MAX_ATOMS = 5
+_MAX_ATOMS = 7
 
 
 def collect_transcript(events: list[AgentEvent]) -> str:
@@ -52,22 +52,29 @@ async def extract_knowledge_atoms(
         "You are reviewing the transcript of an autonomous ML research agent. "
         f"Extract only TRANSFERABLE findings that future runs of domain "
         f"{domain_id} (or related domains) would benefit from knowing. "
-        "Aim for 3-5 atoms maximum — pick the highest-signal lessons.\n\n"
+        "Aim for 3-7 atoms maximum — pick the highest-signal lessons.\n\n"
         "INCLUDE:\n"
-        "- Modeling lessons that generalise (e.g. 'tree models tend to beat linear on tabular regression')\n"
-        "- Dead-ends worth avoiding (e.g. 'quadratic feature engineering hurt HistGBM')\n"
-        "- Environment gotchas (e.g. 'lightgbm is not installed in this workspace')\n"
-        "- Anti-patterns (e.g. 'dropping NaNs before split caused leakage')\n\n"
+        "- Modelling-approach lessons (e.g. 'tree models beat linear by ~12% RMSE — the residual plot from exp_01 shows the relationship is non-linear')\n"
+        "- Feature/target representation lessons (e.g. 'log-transforming the target halved RMSE — the target is heavy-tailed')\n"
+        "- Dead-ends worth avoiding (e.g. 'quadratic feature engineering hurt HistGBM, likely because the gradient booster already captures interactions')\n"
+        "- Environment gotchas (e.g. 'lightgbm is not installed in this workspace, fell back to sklearn HistGBM')\n"
+        "- Anti-patterns (e.g. 'dropping NaNs before split caused leakage and inflated R² by 0.05')\n\n"
         "REJECT:\n"
         "- Dataset shape descriptions (row count, column count, column names, schema)\n"
-        "- Single-experiment hyperparameter values ('tried n_estimators=1000')\n"
+        "- Single-experiment hyperparameter values ('tried n_estimators=1000') unless the value itself is a generalisable lesson\n"
         "- Running totals or progress recaps\n"
         "- Single-experiment numeric results without comparison context\n\n"
+        "STYLE:\n"
+        "- Each `claim` should be 1-2 sentences: the finding plus a short *why*"
+        " or supporting evidence. One-word headlines are too terse.\n"
+        "- Use the `context` field for the situation in which the finding"
+        " held (e.g. 'early baseline runs', 'after feature engineering',"
+        " 'tabular regression with <10k rows').\n\n"
         "Calibrate confidence: ≥0.7 = 'I'd bet on this in the next run'. "
         "≤0.3 = 'weak signal, only worth recording if novel'.\n\n"
         "Output ONLY a JSON array (possibly empty) of objects with keys:\n"
-        '- "claim": one-sentence finding (required)\n'
-        '- "context": short phrase, e.g. "early baseline runs" (optional)\n'
+        '- "claim": 1-2 sentence finding with the *why* (required)\n'
+        '- "context": short phrase describing when/where this held (optional but encouraged)\n'
         '- "confidence": float 0.0-1.0 calibrated to evidence (optional, default 0.5)\n'
         '- "experiment_id": ULID if known from transcript (optional)\n\n'
         "If nothing is durable, output [].\n\n"

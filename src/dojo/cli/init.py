@@ -129,17 +129,20 @@ async def _init_async(
     config_dir: Path,
 ) -> None:
     # ---- 1. Config bootstrap -------------------------------------------------
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "config.yaml"
-    if not config_path.exists():
-        config_init()
+    with console.status("[bold]bootstrapping config...[/bold]", spinner="dots"):
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_path = config_dir / "config.yaml"
+        if not config_path.exists():
+            config_init()
 
-    if tracking or agent_backend:
-        _patch_config(config_path, tracking=tracking, agent_backend=agent_backend)
+        if tracking or agent_backend:
+            _patch_config(config_path, tracking=tracking, agent_backend=agent_backend)
 
-    lab, settings = build_cli_lab()
+        lab, settings = build_cli_lab()
+    console.print(f"[green]✓[/green] config ready at {config_path}")
 
     # ---- 2. Domain + workspace ----------------------------------------------
+    # Prompts must run OUTSIDE console.status (the spinner suppresses input).
     if name is None:
         name = _ask("Domain name", default=None, non_interactive=non_interactive)
 
@@ -147,13 +150,17 @@ async def _init_async(
         description = _ask("Description (optional)", default="", non_interactive=non_interactive)
 
     workspace_obj = _build_workspace(workspace_arg)
-    domain = Domain(
-        name=name,
-        description=description,
-        status=DomainStatus.ACTIVE,
-        workspace=workspace_obj,
-    )
-    await lab.domain_store.save(domain)
+    with console.status(
+        f"[bold]creating domain {name!r}...[/bold]",
+        spinner="dots",
+    ):
+        domain = Domain(
+            name=name,
+            description=description,
+            status=DomainStatus.ACTIVE,
+            workspace=workspace_obj,
+        )
+        await lab.domain_store.save(domain)
     console.print(f"[green]✓[/green] domain created: {domain.id} ({domain.name})")
 
     if (
@@ -162,12 +169,15 @@ async def _init_async(
         and workspace_obj.source != WorkspaceSource.EMPTY
         and workspace_obj.path
     ):
-        console.print("Setting up workspace (venv + deps)...")
         ws_service = WorkspaceService(Path(settings.storage.base_dir))
         try:
-            updated = await ws_service.setup(domain)
-            domain.workspace = updated
-            await lab.domain_store.save(domain)
+            with console.status(
+                "[bold]setting up workspace (venv + deps, can take a few minutes)...[/bold]",
+                spinner="dots",
+            ):
+                updated = await ws_service.setup(domain)
+                domain.workspace = updated
+                await lab.domain_store.save(domain)
             console.print(f"[green]✓[/green] workspace ready: {updated.path}")
         except Exception as e:
             console.print(f"[yellow]warning:[/yellow] workspace setup failed: {e}")
@@ -188,34 +198,40 @@ async def _init_async(
         ttype, data_path=data_path, target_column=target_column, test_split=test_split
     )
 
-    task_svc = TaskService(lab)
-    task = await task_svc.create(
-        domain.id, task_type=ttype, name=f"{ttype.value} task", config=task_config
-    )
+    with console.status(
+        f"[bold]creating {ttype.value} task...[/bold]",
+        spinner="dots",
+    ):
+        task_svc = TaskService(lab)
+        task = await task_svc.create(
+            domain.id, task_type=ttype, name=f"{ttype.value} task", config=task_config
+        )
+
+        # Reload so domain.task is populated for the template
+        domain = await lab.domain_store.load(domain.id)
+        assert domain is not None  # just saved
     console.print(f"[green]✓[/green] task created: {task.id} ({task.type.value})")
 
-    # Reload so domain.task is populated for the template
-    domain = await lab.domain_store.load(domain.id)
-    assert domain is not None  # just saved
-
     # ---- 4. PROGRAM.md scaffold ---------------------------------------------
-    program_path = write_program(
-        domain,
-        default_program_template(domain),
-        base_dir=Path(settings.storage.base_dir),
-    )
-    domain.program_path = str(program_path)
-    await lab.domain_store.save(domain)
+    with console.status("[bold]scaffolding PROGRAM.md...[/bold]", spinner="dots"):
+        program_path = write_program(
+            domain,
+            default_program_template(domain),
+            base_dir=Path(settings.storage.base_dir),
+        )
+        domain.program_path = str(program_path)
+        await lab.domain_store.save(domain)
     console.print(f"[green]✓[/green] PROGRAM.md scaffolded at {program_path}")
 
     # ---- 4b. SETUP.md scaffold (data + eval spec, read by `dojo task setup`) -
-    setup_path = write_setup(
-        domain,
-        default_setup_template(domain),
-        base_dir=Path(settings.storage.base_dir),
-    )
-    domain.setup_path = str(setup_path)
-    await lab.domain_store.save(domain)
+    with console.status("[bold]scaffolding SETUP.md...[/bold]", spinner="dots"):
+        setup_path = write_setup(
+            domain,
+            default_setup_template(domain),
+            base_dir=Path(settings.storage.base_dir),
+        )
+        domain.setup_path = str(setup_path)
+        await lab.domain_store.save(domain)
     console.print(f"[green]✓[/green] SETUP.md scaffolded at {setup_path}")
 
     # ---- 5. Set current_domain_id -------------------------------------------

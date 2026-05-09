@@ -13,6 +13,19 @@ for the release workflow.
 
 ## [Unreleased]
 
+## [v0.0.13] - 2026-05-09
+
+### Agent prompts
+
+- **Workflow reframed around a baseline-first rhythm** ([src/dojo/agents/prompts.py](src/dojo/agents/prompts.py)) — the system prompt's workflow section now leads with an explicit "Step 1 — Baseline (always first)" directive: the first `run_experiment` is the simplest plausible end-to-end model with default parameters, no tuning, no feature engineering. Hyperparameter tuning is explicitly demoted to a late move ("a +0.5% from tuning is rarely informative and burns turn budget") rather than being one of several legitimate first steps. The "Don't waste turns on exploration" section is replaced by a softer "Reading the workspace" section that **encourages** reading user code (mirroring conventions in `models/`, `src/`, `notebooks/`) instead of treating Bash/Read/Glob as last resorts. (#8)
+- **SETUP.md surfaced to the agent** ([src/dojo/agents/prompts.py](src/dojo/agents/prompts.py) `_build_domain_section`) — when a domain has `setup_path` set, the prompt now lists it under the Domain section with explicit permission to read it ("safe and frozen — reading it does not change the contract"). This gives the agent the human-language description of the data + evaluation, not just the frozen tools. (#8)
+- **Findings ask for verbosity** ([src/dojo/agents/prompts.py](src/dojo/agents/prompts.py), [src/dojo/agents/summarizer.py](src/dojo/agents/summarizer.py)) — the `write_knowledge` guidance now asks for 1-2 sentence claims with the *why*, not one-word headlines. The end-of-run summarizer prompt mirrors this: examples include rationale ("tree models beat linear by ~12% RMSE — the residual plot from exp_01 shows the relationship is non-linear"), and the cap moves from 5 → 7 atoms to give the verbose form room. Single-experiment hyperparameter values are still rejected unless the value itself generalises. (#8)
+- **Accumulated knowledge renders context** ([src/dojo/agents/orchestrator.py](src/dojo/agents/orchestrator.py)) — the per-run knowledge index now renders the atom's `context` line indented under each claim, so the agent inherits the situation in which a finding held, not just the headline. (#8)
+
+### Changed
+
+- **`dojo init` startup steps now show spinners** ([src/dojo/cli/init.py](src/dojo/cli/init.py)) — every step (config bootstrap, domain creation, workspace setup, task creation, PROGRAM.md / SETUP.md scaffolds) is wrapped in `console.status(..., spinner="dots")`. The workspace setup step (which can run `uv sync` / `pip install -r` / `git clone` for minutes with stdout piped) is labelled "(can take a few minutes)" and now visibly spins instead of appearing to hang. (#7)
+
 ## [v0.0.12] - 2026-05-06
 
 ### Agent prompts

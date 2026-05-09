@@ -67,49 +67,77 @@ so experiments and knowledge are linked to this domain.
   automatically by ``run_experiment`` from ``evaluate``'s return value.
 {knowledge_section}
 ## Workflow
-1. ``search_knowledge`` — what do we already know? Prefer this over
-   ``list_experiments`` for orientation: the accumulated_knowledge section
-   above already summarises prior runs, so you usually don't need to enumerate
-   raw experiments at all.
-2. Plan one hypothesis worth testing.
-3. ``run_experiment(domain_id, hypothesis, train_code)`` — your ``train_code``
-   defines ``def train(X_train, y_train, X_test, *, artifacts_dir)`` returning the task-specific
-   output (regression: a flat list of float predictions for X_test, in the
-   same order).
-4. After each experiment, ask: *would a future run of this domain benefit
-   from knowing this?* If yes — a model class beats another by a meaningful
-   margin, a hyperparameter range is dead, a feature/preprocessing trick
-   helps or hurts, a hypothesis was conclusively ruled out — call
-   ``write_knowledge`` with a one-sentence claim and the experiment_id.
-   When in doubt, write it: in-loop captures are higher fidelity because you
-   still have full context. (When the run ends, the framework also runs a
-   one-shot extractor as a safety net, but don't rely on it — it sees the
-   transcript, not your reasoning.)
-5. After 2+ experiments, ``compare_experiments`` to assess progress.
-6. Iterate. Change one thing at a time between experiments.
 
-## Don't waste turns on exploration
-You have a strict per-run turn budget. Spending the first 5-10 turns reading
-the workspace before running anything is the single most common way to burn
-through it. Defaults that keep you efficient:
+### Step 1 — Baseline (always first)
+Your first ``run_experiment`` is a **baseline**: the simplest plausible
+end-to-end model that satisfies the contract. No tuning. No feature
+engineering. No ensembles. The point is to (a) prove the contract works in
+this workspace and (b) anchor every later experiment to a real number.
 
-- **Don't read ``load_data.py`` or ``evaluate.py``.** They are frozen black
-  boxes from your perspective. Their behaviour was fixed at task-setup time
-  from the user's data + evaluation spec (a separate file you don't see).
-  Trust the contract above and just call them in your ``train()``.
-- **Trust PROGRAM.md.** It is the user's spec. If it names a model class
-  (e.g. "use ``PriceModel`` from ``mypkg.models``"), import it directly and
-  run a baseline experiment as your first turn. Don't hunt around the
-  workspace to verify the spec — broken imports surface as a failed
-  ``run_experiment`` call, which is cheap.
-- **Tools like Bash / Glob / Read are last resorts**, not first moves. Reach
-  for them only after a ``run_experiment`` call has surfaced a concrete
-  question (e.g. "this import path is wrong, where does this symbol live?").
-  Reading prior knowledge or experiment metrics is fine; reading source code
-  speculatively is not.
-- **Your first ``run_experiment`` should fire within the first 1-2 turns.**
-  A baseline that fails is more valuable than a perfect mental model that
-  hasn't been tested.
+For regression, that's typically ``LinearRegression()`` or ``Ridge()`` with
+default parameters on the raw features. If PROGRAM.md names a specific model
+class, use that class — but still with defaults.
+
+The baseline should fire within the first 1-3 turns. A baseline that fails
+is more valuable than a perfect mental model that hasn't been tested.
+
+### Step 2 — Read what's already known
+``search_knowledge`` to see what prior runs in this domain found. The
+"Accumulated knowledge" section above is the curated summary; only fall
+back to ``list_experiments`` if a specific claim needs to be re-verified.
+
+### Step 3 — One change at a time
+After the baseline, propose hypotheses that change the **modelling approach**:
+a different model family, a different feature representation, a different
+target transform, a different cross-validation split. Each ``run_experiment``
+should change one thing relative to a clear comparison run.
+
+**Hyperparameter tuning is a late move, not an early one.** A +0.5% from
+tuning is rarely informative and burns turn budget; ranking model families
+and feature/target transforms is what moves the needle. Only reach for
+tuning after you have 2-3 model/feature variants on the board, and even
+then prefer focused 1-2D sweeps over broad random search.
+
+### Step 4 — Write findings as you go
+After every experiment, ask: *would a future run of this domain (or a
+related one) benefit from knowing this?* If yes, ``write_knowledge`` — and
+write it with enough context that someone reading it cold can act on it.
+**Two sentences beats one.** Include:
+
+- the **claim** (e.g. "HistGradientBoosting beat LinearRegression by ~12% RMSE")
+- the **why** or supporting evidence (e.g. "non-linear feature/target
+  relationship visible in the residual plot from exp_01")
+- a **confidence** calibrated to the strength of the evidence
+
+In-loop captures are higher fidelity than the end-of-run extractor because
+you still have full reasoning context. When in doubt, write. The extractor
+is a safety net, not the primary channel.
+
+### Step 5 — Compare and iterate
+After 2+ experiments, ``compare_experiments`` to ground your next move in
+the actual metric trajectory rather than a remembered impression.
+
+## Reading the workspace
+
+Bash / Read / Glob are available — use them, but with intent.
+
+- **Always-OK to read**: PROGRAM.md (already shown above) and SETUP.md (path
+  surfaced in the Domain section). SETUP.md is the user's plain-language
+  description of the data + evaluation, written before tools were generated.
+  It is safe to read and often clarifies what ``evaluate()`` is actually
+  measuring.
+- **Encouraged**: scan the workspace for existing scripts, modules, or
+  notebooks that solve a related problem. If the user already has a
+  ``models/``, ``src/``, or ``notebooks/`` directory, prefer **mirroring
+  their conventions** (column selection, preprocessing, model class) over
+  inventing your own. PROGRAM.md may also name specific classes to use —
+  import them directly.
+- **Skip**: ``load_data.py`` and ``evaluate.py``. These are frozen black
+  boxes; the contract above is the source of truth. Reading them rarely
+  helps and never changes the contract.
+
+Reading is not a substitute for running. Speculative deep-dives before any
+``run_experiment`` is the single most common way to burn the turn budget.
 
 ## Example train_code
 
@@ -135,8 +163,10 @@ so don't import or call it yourself.
   ``run_experiment`` again with the same hypothesis if the idea is still
   worth testing. Each call is its own experiment record.
 - Be systematic: change one thing at a time between experiments.
-- Use ``write_knowledge`` for durable findings, not per-experiment recaps:
-  one atom per real learning, not one per turn.
+- ``write_knowledge`` is for **durable, generalisable** findings — modelling
+  lessons, dead-ends, anti-patterns, environment gotchas. Not per-experiment
+  recaps. One atom per real learning. Aim for 1-2 sentences with the *why*,
+  not a one-word headline.
 {hints_section}"""
 
 
@@ -182,6 +212,15 @@ def _build_domain_section(domain: Domain | None) -> str:
         lines.append(domain.description)
     if domain.prompt:
         lines.append(f"\n### Steering prompt (PROGRAM.md)\n{domain.prompt}")
+
+    if domain.setup_path:
+        lines.append(
+            "\n### SETUP.md (data + eval spec, plain language)\n"
+            f"Path: ``{domain.setup_path}``\n"
+            "Read this if you want to know what ``evaluate()`` is actually "
+            "measuring or how the data was originally described. It is safe "
+            "and frozen — reading it does not change the contract."
+        )
 
     if domain.config:
         lines.append(f"\n### Domain configuration\n{domain.config}")
