@@ -62,11 +62,11 @@ async def list_knowledge(request: Request, domain_id: str | None = None) -> list
     """List all knowledge atoms, optionally filtered by domain."""
     lab = _get_lab(request)
 
-    if domain_id:
-        atoms = await lab.knowledge_linker.get_domain_knowledge(domain_id)
-        return [_atom_to_response(a) for a in atoms]
-
-    atoms = await lab.memory_store.list()
+    atoms = (
+        await lab.memory_store.list_for_domain(domain_id)
+        if domain_id
+        else await lab.memory_store.list()
+    )
     return [_atom_to_response(a) for a in atoms]
 
 
@@ -80,20 +80,7 @@ async def search_knowledge(
     """Search for relevant knowledge atoms, optionally scoped to a domain."""
     lab = _get_lab(request)
 
-    if domain_id:
-        atoms = await lab.knowledge_linker.get_domain_knowledge(domain_id)
-        # Apply keyword filter within domain knowledge
-        if query:
-            query_lower = query.lower()
-            keywords = query_lower.split()
-            atoms = [
-                a
-                for a in atoms
-                if any(kw in f"{a.context} {a.claim} {a.action}".lower() for kw in keywords)
-            ]
-        return [_atom_to_response(a) for a in atoms[:limit]]
-
-    atoms = await lab.memory_store.search(query, limit=limit)
+    atoms = await lab.memory_store.search(query, limit=limit, domain_id=domain_id or None)
     return [_atom_to_response(a) for a in atoms]
 
 

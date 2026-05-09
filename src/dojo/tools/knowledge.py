@@ -29,24 +29,11 @@ def create_knowledge_tools(lab: LabEnvironment) -> list[ToolDef]:
         )
 
     async def search_knowledge(args: dict[str, Any]) -> ToolResult:
-        domain_id = args.get("domain_id")
-
-        # If domain_id is specified, use domain-scoped search
-        if domain_id:
-            atoms = await lab.knowledge_linker.get_domain_knowledge(domain_id)
-            # Apply keyword filter within domain knowledge
-            query = args.get("query", "")
-            if query:
-                query_lower = query.lower()
-                keywords = query_lower.split()
-                atoms = [
-                    a
-                    for a in atoms
-                    if any(kw in f"{a.context} {a.claim} {a.action}".lower() for kw in keywords)
-                ]
-            atoms = atoms[: args.get("limit", 10)]
-        else:
-            atoms = await lab.memory_store.search(args["query"], limit=args.get("limit", 10))
+        atoms = await lab.memory_store.search(
+            args["query"],
+            limit=args.get("limit", 10),
+            domain_id=args.get("domain_id") or None,
+        )
 
         return ToolResult(
             data=[
@@ -66,9 +53,8 @@ def create_knowledge_tools(lab: LabEnvironment) -> list[ToolDef]:
 
     async def list_knowledge(args: dict[str, Any]) -> ToolResult:
         domain_id = args.get("domain_id")
-
         if domain_id:
-            atoms = await lab.knowledge_linker.get_domain_knowledge(domain_id)
+            atoms = await lab.memory_store.list_for_domain(domain_id)
         else:
             atoms = await lab.memory_store.list()
 

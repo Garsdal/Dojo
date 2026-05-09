@@ -1,8 +1,12 @@
 """Keyword-overlap knowledge linker — default implementation.
 
-Uses keyword overlap ratio (≥40% of the smaller word set) to find
-similar existing atoms. Every finding is stored as a new immutable atom;
-similar atoms are linked with RELATED_TO links.
+Picks RELATED_TO candidates via keyword overlap (≥40% of the smaller word
+set, ≥3 overlapping words). Atoms are immutable; every write creates a
+new atom and links it to similar prior atoms in the same domain.
+
+The atom shape produced here is identical to ``LLMKnowledgeLinker``'s —
+the linker only affects which RELATED_TO edges land on disk. Search over
+atoms is text-only and uniform across linkers.
 """
 
 from __future__ import annotations
@@ -23,14 +27,7 @@ _MIN_OVERLAP_WORDS = 3
 
 
 class KeywordKnowledgeLinker(KnowledgeLinker):
-    """Knowledge linker using keyword-overlap heuristic.
-
-    When an agent produces a finding, the linker:
-    1. Always creates a new immutable atom
-    2. Finds similar existing atoms (keyword overlap)
-    3. Creates a CREATED_BY link to the experiment/domain
-    4. Creates RELATED_TO links to similar atoms
-    """
+    """Knowledge linker using keyword-overlap heuristic."""
 
     def __init__(
         self,
@@ -51,20 +48,16 @@ class KeywordKnowledgeLinker(KnowledgeLinker):
         experiment_id: str = "",
         domain_id: str = "",
     ) -> LinkingResult:
-        """Produce a knowledge atom through the linking process.
-
-        Always creates a new immutable atom — never merges.
-        """
         evidence = evidence_ids or []
 
-        # 1. Always create a new atom
         atom = KnowledgeAtom(
+            domain_id=domain_id,
+            source_experiment_id=experiment_id,
             context=context,
             claim=claim,
             action=action,
             confidence=confidence,
             evidence_ids=evidence,
-            version=1,
         )
         await self._memory.add(atom)
         logger.info(
@@ -75,51 +68,18 @@ class KeywordKnowledgeLinker(KnowledgeLinker):
             confidence=confidence,
         )
 
-        # 2. Find similar existing atoms (for grouping, not merging)
         similar = await self.find_similar(context, claim, exclude_id=atom.id)
-
-        # 3. Create CREATED_BY link from this atom to the experiment/domain
-        if experiment_id or domain_id:
-            link = KnowledgeLink(
-                atom_id=atom.id,
-                experiment_id=experiment_id or "",
-                domain_id=domain_id,
-                link_type=LinkType.CREATED_BY,
-            )
-            await self._links.link(link)
-            logger.info(
-                "knowledge_link_created",
-                atom_id=atom.id,
-                link_type=LinkType.CREATED_BY.value,
-                domain_id=domain_id,
-                experiment_id=experiment_id,
-            )
-
-        # 4. Create RELATED_TO links to similar atoms
-        related_ids: list[str] = []
-        for existing in similar:
-            rel_link = KnowledgeLink(
-                atom_id=atom.id,
-                experiment_id=experiment_id or "",
-                domain_id=domain_id,
-                link_type=LinkType.RELATED_TO,
-                related_atom_id=existing.id,
-            )
-            await self._links.link(rel_link)
-            logger.info(
-                "knowledge_link_created",
-                atom_id=atom.id,
-                link_type=LinkType.RELATED_TO.value,
-                related_atom_id=existing.id,
-                domain_id=domain_id,
-                experiment_id=experiment_id,
-            )
-            related_ids.append(existing.id)
+        related_ids = await _write_links(
+            self._links,
+            atom=atom,
+            domain_id=domain_id,
+            experiment_id=experiment_id,
+            related=similar,
+        )
 
         return LinkingResult(
             atom_id=atom.id,
             action="created",
-            version=1,
             confidence=confidence,
             related_to=related_ids or None,
         )
@@ -127,49 +87,79 @@ class KeywordKnowledgeLinker(KnowledgeLinker):
     async def find_similar(
         self, context: str, claim: str, *, exclude_id: str = ""
     ) -> list[KnowledgeAtom]:
-        """Search existing atoms for semantic overlap using keyword matching."""
         query = f"{context} {claim}"
         candidates = await self._memory.search(query, limit=5)
-
-        matches = []
-        for candidate in candidates:
-            if candidate.id == exclude_id:
-                continue
-            if self._is_semantic_match(context, claim, candidate):
-                matches.append(candidate)
-        return matches
-
-    def _is_semantic_match(self, context: str, claim: str, candidate: KnowledgeAtom) -> bool:
-        """Determine if a candidate atom semantically overlaps with the new finding.
-
-        Uses keyword overlap ratio — a simple but effective heuristic.
-        """
-        new_words = set(f"{context} {claim}".lower().split())
-        existing_words = set(f"{candidate.context} {candidate.claim}".lower().split())
-
-        if not new_words or not existing_words:
-            return False
-
-        overlap = new_words & existing_words
-        if len(overlap) < _MIN_OVERLAP_WORDS:
-            return False
-        smaller = min(len(new_words), len(existing_words))
-        ratio = len(overlap) / smaller if smaller > 0 else 0.0
-
-        return ratio >= _MATCH_THRESHOLD
+        return [
+            c
+            for c in candidates
+            if c.id != exclude_id and is_keyword_match(context, claim, c)
+        ]
 
     async def get_domain_knowledge(self, domain_id: str) -> list[KnowledgeAtom]:
-        """Get all knowledge atoms linked to a domain."""
-        links = await self._links.get_links_for_domain(domain_id)
-        atom_ids = {link.atom_id for link in links}
-
-        atoms = []
-        for atom_id in atom_ids:
-            atom = await self._memory.get(atom_id)
-            if atom is not None:
-                atoms.append(atom)
-        return atoms
+        return await self._memory.list_for_domain(domain_id)
 
     async def get_atom_links(self, atom_id: str) -> list[KnowledgeLink]:
-        """Get all links for a knowledge atom."""
         return await self._links.get_links_for_atom(atom_id)
+
+
+def is_keyword_match(context: str, claim: str, candidate: KnowledgeAtom) -> bool:
+    """Whether *candidate* shares enough keywords with the new finding."""
+    new_words = set(f"{context} {claim}".lower().split())
+    existing_words = set(f"{candidate.context} {candidate.claim}".lower().split())
+
+    if not new_words or not existing_words:
+        return False
+
+    overlap = new_words & existing_words
+    if len(overlap) < _MIN_OVERLAP_WORDS:
+        return False
+    smaller = min(len(new_words), len(existing_words))
+    ratio = len(overlap) / smaller if smaller > 0 else 0.0
+    return ratio >= _MATCH_THRESHOLD
+
+
+async def _write_links(
+    link_store: KnowledgeLinkStore,
+    *,
+    atom: KnowledgeAtom,
+    domain_id: str,
+    experiment_id: str,
+    related: list[KnowledgeAtom],
+) -> list[str]:
+    """Write CREATED_BY + one RELATED_TO per *related* atom. Shared by linkers."""
+    if experiment_id or domain_id:
+        link = KnowledgeLink(
+            atom_id=atom.id,
+            experiment_id=experiment_id or "",
+            domain_id=domain_id,
+            link_type=LinkType.CREATED_BY,
+        )
+        await link_store.link(link)
+        logger.info(
+            "knowledge_link_created",
+            atom_id=atom.id,
+            link_type=LinkType.CREATED_BY.value,
+            domain_id=domain_id,
+            experiment_id=experiment_id,
+        )
+
+    related_ids: list[str] = []
+    for existing in related:
+        rel_link = KnowledgeLink(
+            atom_id=atom.id,
+            experiment_id=experiment_id or "",
+            domain_id=domain_id,
+            link_type=LinkType.RELATED_TO,
+            related_atom_id=existing.id,
+        )
+        await link_store.link(rel_link)
+        logger.info(
+            "knowledge_link_created",
+            atom_id=atom.id,
+            link_type=LinkType.RELATED_TO.value,
+            related_atom_id=existing.id,
+            domain_id=domain_id,
+            experiment_id=experiment_id,
+        )
+        related_ids.append(existing.id)
+    return related_ids
