@@ -119,20 +119,21 @@ def test_onboard_preset_runs_end_to_end(onboard_dir: Path):
     assert "fetch_california_housing" in setup
 
 
-def test_select_is_coroutine_so_it_works_inside_asyncio_run() -> None:
-    """Regression: questionary's sync `.ask()` starts a nested asyncio loop.
-
-    Inside `_onboard_async` (driven by `asyncio.run`) that raises
-    `RuntimeError: asyncio.run() cannot be called from a running event loop`.
-    `_select` must be a coroutine using `.ask_async()` so it joins the
-    surrounding loop instead of starting its own.
+def test_select_is_sync_no_nested_event_loop() -> None:
+    """Regression: an earlier version used `questionary` whose sync `.ask()`
+    started a nested asyncio loop (crash) and whose async `.ask_async()`
+    forced `_select` to be a coroutine. Switching to `simple-term-menu`
+    (POSIX termios, no event loop) lets `_select` go back to sync — and
+    keeping it sync prevents anyone reintroducing the nested-loop hazard.
     """
     import inspect
 
     from dojo.cli.onboard import _select
 
-    assert inspect.iscoroutinefunction(_select), (
-        "_select must be async to avoid nested asyncio.run() inside questionary"
+    assert not inspect.iscoroutinefunction(_select), (
+        "_select must stay sync — async signatures here historically meant a "
+        "library that started its own event loop, which crashes inside "
+        "asyncio.run(_onboard_async(...))."
     )
 
 
