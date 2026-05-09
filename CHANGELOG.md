@@ -13,6 +13,16 @@ for the release workflow.
 
 ## [Unreleased]
 
+## [v0.0.14] - 2026-05-09
+
+### Agent prompts
+
+(none in this release)
+
+### Changed
+
+- **README restructured around `uv tool install dojoml`** ([README.md](README.md)) — PyPI install + the 3-command quickstart now lead the page, with all contributor / development content consolidated into a single "Development" section near the bottom that points at [CLAUDE.md](CLAUDE.md). `just`, `npm`, and the cloned-repo path are no longer in the user-facing flow. Adds an explicit note that the React frontend isn't bundled in the PyPI release yet — UI users still need the dev path. (#10)
+
 ## [v0.0.13] - 2026-05-09
 
 ### Agent prompts
