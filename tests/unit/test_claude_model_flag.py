@@ -70,3 +70,52 @@ async def test_complete_omits_model_flag_when_unset(monkeypatch: pytest.MonkeyPa
     b = ClaudeAgentBackend()
     await b.complete("p")
     assert "--model" not in captured["argv"]
+
+
+async def test_complete_error_falls_back_to_stdout(monkeypatch: pytest.MonkeyPatch):
+    """When `claude -p` writes the error to stdout (e.g. nested-session guard),
+    the RuntimeError should still include it instead of an empty string."""
+
+    class _FakeProc:
+        returncode = 1
+
+        async def communicate(self):
+            return (b"Error: nested session not allowed", b"")
+
+    async def _fake_exec(*argv, **kwargs):
+        return _FakeProc()
+
+    import asyncio
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+    b = ClaudeAgentBackend()
+    with pytest.raises(RuntimeError, match="nested session not allowed"):
+        await b.complete("p")
+
+
+async def test_complete_strips_claudecode_from_subprocess_env(monkeypatch: pytest.MonkeyPatch):
+    """Even if the parent process has CLAUDECODE set (e.g. dojo invoked from a
+    Claude Code shell), the `claude -p` subprocess must not inherit it — that
+    would trip the CLI's nested-session guard."""
+    captured: dict[str, Any] = {}
+
+    class _FakeProc:
+        returncode = 0
+
+        async def communicate(self):
+            return (b"ok", b"")
+
+    async def _fake_exec(*argv, **kwargs):
+        captured["env"] = kwargs.get("env")
+        return _FakeProc()
+
+    import asyncio
+
+    monkeypatch.setenv("CLAUDECODE", "1")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+    b = ClaudeAgentBackend()
+    await b.complete("p")
+    assert captured["env"] is not None, "subprocess must be invoked with an explicit env"
+    assert "CLAUDECODE" not in captured["env"]

@@ -130,22 +130,32 @@ class ClaudeAgentBackend(AgentBackend):
         Passes ``--model <id>`` when a model was specified at construction.
         """
         import asyncio
+        import os
 
         argv = ["claude", "-p"]
         if self._model:
             argv.extend(["--model", self._model])
         argv.append(prompt)
 
+        # Strip CLAUDECODE so the CLI's nested-session guard doesn't trip when
+        # the parent process was itself launched from a Claude Code shell. The
+        # guard exists to prevent recursive interactive sessions; a deliberate
+        # `claude -p` shell-out is fine and the CLI itself documents this var
+        # as the bypass.
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+
         proc = await asyncio.create_subprocess_exec(
             *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300.0)
         if proc.returncode != 0:
-            raise RuntimeError(
-                f"claude -p failed (exit {proc.returncode}): {stderr.decode().strip()}"
-            )
+            # Some claude-CLI errors (notably the nested-session guard) print
+            # to stdout with empty stderr — fall back so the message survives.
+            err = stderr.decode().strip() or stdout.decode().strip()
+            raise RuntimeError(f"claude -p failed (exit {proc.returncode}): {err}")
         return stdout.decode().strip()
 
     @property
