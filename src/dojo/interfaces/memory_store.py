@@ -1,5 +1,7 @@
 """Memory store interface for knowledge atoms."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 
 from dojo.core.knowledge import KnowledgeAtom

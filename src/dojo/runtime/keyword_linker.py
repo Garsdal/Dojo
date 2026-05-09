@@ -89,11 +89,7 @@ class KeywordKnowledgeLinker(KnowledgeLinker):
     ) -> list[KnowledgeAtom]:
         query = f"{context} {claim}"
         candidates = await self._memory.search(query, limit=5)
-        return [
-            c
-            for c in candidates
-            if c.id != exclude_id and is_keyword_match(context, claim, c)
-        ]
+        return [c for c in candidates if c.id != exclude_id and is_keyword_match(context, claim, c)]
 
     async def get_domain_knowledge(self, domain_id: str) -> list[KnowledgeAtom]:
         return await self._memory.list_for_domain(domain_id)

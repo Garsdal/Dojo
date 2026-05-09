@@ -34,14 +34,15 @@ async def test_produce_creates_new_atom(linker: KeywordKnowledgeLinker, memory_s
     )
 
     assert result.action == "created"
-    assert result.version == 1
     assert result.confidence == 0.85
     assert result.related_to is None
 
-    # Atom should exist in memory store
+    # Atom should exist in memory store with self-describing scope
     atoms = await memory_store.list()
     assert len(atoms) == 1
     assert atoms[0].id == result.atom_id
+    assert atoms[0].domain_id == "domain-001"
+    assert atoms[0].source_experiment_id == "exp-001"
 
 
 async def test_similar_atoms_are_not_merged(linker: KeywordKnowledgeLinker, memory_store):
@@ -67,7 +68,6 @@ async def test_similar_atoms_are_not_merged(linker: KeywordKnowledgeLinker, memo
     # Both should be "created", never "merged"
     assert result1.action == "created"
     assert result2.action == "created"
-    assert result2.version == 1
 
     # Two separate atoms in store
     atoms = await memory_store.list()

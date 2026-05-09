@@ -49,17 +49,15 @@ async def test_knowledge_searchable_after_creation(lab) -> None:
 
 
 async def test_knowledge_persists_across_tasks(lab) -> None:
-    """Knowledge accumulated across tasks is consolidated by the linker.
+    """Atoms accumulate across runs — never merge.
 
-    When two runs produce semantically similar findings, the
-    KnowledgeLinker merges them into a single atom with an
-    incremented version rather than creating duplicates.
+    The keyword linker is immutable-append: every ``write_knowledge`` call
+    creates a new atom, with ``RELATED_TO`` links connecting similar ones.
+    Two runs that each produce a finding therefore yield two atoms, not a
+    single revised one.
     """
     await _run_stub(lab, "classification problem")
     await _run_stub(lab, "regression problem")
 
     atoms = await lab.memory_store.list()
-    assert len(atoms) >= 1
-    # If merged, the version should be > 1
-    if len(atoms) == 1:
-        assert atoms[0].version >= 2
+    assert len(atoms) == 2

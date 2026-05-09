@@ -101,11 +101,7 @@ class LLMKnowledgeLinker(KnowledgeLinker):
         # keyword path here — find_similar isn't on the LLM-call hot path.
         query = f"{context} {claim}"
         candidates = await self._memory.search(query, limit=5)
-        return [
-            c
-            for c in candidates
-            if c.id != exclude_id and is_keyword_match(context, claim, c)
-        ]
+        return [c for c in candidates if c.id != exclude_id and is_keyword_match(context, claim, c)]
 
     async def get_domain_knowledge(self, domain_id: str) -> list[KnowledgeAtom]:
         return await self._memory.list_for_domain(domain_id)
@@ -145,9 +141,7 @@ class LLMKnowledgeLinker(KnowledgeLinker):
         by_id = {c.id: c for c in candidates}
         return [by_id[cid] for cid in valid_ids]
 
-    async def _llm_pick(
-        self, atom: KnowledgeAtom, candidates: list[KnowledgeAtom]
-    ) -> list[str]:
+    async def _llm_pick(self, atom: KnowledgeAtom, candidates: list[KnowledgeAtom]) -> list[str]:
         prompt = _build_prompt(atom, candidates)
         raw = await self._backend.complete(prompt)
         return _parse_ids(raw)
