@@ -171,8 +171,7 @@ async def _onboard_async(
     if workspace_warning is not None:
         console.print(f"[yellow]warning:[/yellow] workspace setup failed: {workspace_warning}")
         console.print(
-            "Continuing — fix manually or rerun "
-            f"`POST /domains/{domain.id}/workspace/setup`"
+            f"Continuing — fix manually or rerun `POST /domains/{domain.id}/workspace/setup`"
         )
     elif domain.workspace and domain.workspace.path:
         console.print(f"[green]✓[/green] workspace ready: {domain.workspace.path}")
@@ -187,9 +186,7 @@ async def _onboard_async(
     console.print(f"[green]✓[/green] task created: {task.id} ({task.type.value})")
 
     # ---- Write PROGRAM.md + SETUP.md ----------------------------------------
-    program_path = write_program(
-        domain, program_md, base_dir=Path(settings.storage.base_dir)
-    )
+    program_path = write_program(domain, program_md, base_dir=Path(settings.storage.base_dir))
     domain.program_path = str(program_path)
     setup_path = write_setup(domain, setup_md, base_dir=Path(settings.storage.base_dir))
     domain.setup_path = str(setup_path)
@@ -270,9 +267,7 @@ def _handle_existing_dojo_dir(config_dir: Path) -> bool:
         console.print("aborted.")
         return False
     if choice == "o":
-        if not Confirm.ask(
-            f"[red]Delete {config_dir} and start fresh?[/red]", default=False
-        ):
+        if not Confirm.ask(f"[red]Delete {config_dir} and start fresh?[/red]", default=False):
             console.print("aborted.")
             return False
         shutil.rmtree(config_dir)
@@ -324,20 +319,14 @@ def _prompt_config_choices(config_path: Path) -> None:
     console.print()
     console.print("[bold]Config[/bold] — press enter to accept the default in [dim]parens[/dim].")
 
-    agent_backend = Prompt.ask(
-        "Agent backend", choices=["claude", "stub"], default="claude"
-    )
-    tracking_backend = Prompt.ask(
-        "Tracking backend", choices=["file", "mlflow"], default="file"
-    )
+    agent_backend = Prompt.ask("Agent backend", choices=["claude", "stub"], default="claude")
+    tracking_backend = Prompt.ask("Tracking backend", choices=["file", "mlflow"], default="file")
     mlflow_uri: str | None = None
     mlflow_experiment: str | None = None
     if tracking_backend == "mlflow":
         mlflow_uri = Prompt.ask("MLflow tracking URI", default="file:./mlruns")
         mlflow_experiment = Prompt.ask("MLflow experiment name", default="dojo")
-    linker = Prompt.ask(
-        "Knowledge linker", choices=["keyword", "llm"], default="keyword"
-    )
+    linker = Prompt.ask("Knowledge linker", choices=["keyword", "llm"], default="keyword")
 
     # Only patch when the user changed something away from defaults.
     _patch_config_full(
@@ -444,9 +433,7 @@ class _FakeDomain:
         self.description = description
 
 
-def _pip_install_into_workspace(
-    *, python_path: str, modules: list[str], label: str
-) -> None:
+def _pip_install_into_workspace(*, python_path: str, modules: list[str], label: str) -> None:
     """Install modules into the workspace's venv. Warn (don't raise) on failure."""
     if not modules:
         return
@@ -467,9 +454,7 @@ def _pip_install_into_workspace(
     console.print(f"[green]✓[/green] installed: {', '.join(modules)}")
 
 
-async def _generate_and_verify_with_retries(
-    *, lab: LabEnvironment, domain: Domain
-) -> bool:
+async def _generate_and_verify_with_retries(*, lab: LabEnvironment, domain: Domain) -> bool:
     """Run `_do_generate` up to MAX_INSTALL_RETRIES times, auto-installing on import errors.
 
     Returns True on success (every required tool verified), False on failure
@@ -478,9 +463,7 @@ async def _generate_and_verify_with_retries(
     last_errors: list[str] = []
     for attempt in range(MAX_INSTALL_RETRIES):
         try:
-            tools = await _do_generate(
-                lab, domain, hint="", verify=True, save=True, timeout=None
-            )
+            tools = await _do_generate(lab, domain, hint="", verify=True, save=True, timeout=None)
         except typer.Exit:
             # _do_generate exits on hard generator errors (parse failure, backend
             # not supporting completion). Surface as a hard failure here.
@@ -514,8 +497,7 @@ async def _generate_and_verify_with_retries(
             break
 
         console.print(
-            f"[yellow]verification failed[/yellow] — missing module(s): "
-            f"{', '.join(deduped)}"
+            f"[yellow]verification failed[/yellow] — missing module(s): {', '.join(deduped)}"
         )
         if not Confirm.ask("Install into the workspace venv?", default=True):
             break

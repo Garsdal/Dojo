@@ -179,7 +179,9 @@ def fill_program_template(
     surrounding section headers / HTML comments.
     """
     out = base_template
-    out = out.replace("TODO — describe the target.", target.strip() or "TODO — describe the target.")
+    out = out.replace(
+        "TODO — describe the target.", target.strip() or "TODO — describe the target."
+    )
     out = out.replace(
         "TODO — describe what success looks like.",
         success.strip() or "TODO — describe what success looks like.",

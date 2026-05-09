@@ -91,7 +91,7 @@ async def create_domain_with_workspace(
             updated = await ws_service.setup(domain)
             domain.workspace = updated
             await lab.domain_store.save(domain)
-        except Exception as e:  # noqa: BLE001  surface any setup failure
+        except Exception as e:
             workspace_warning = str(e)
 
     return domain, workspace_warning
