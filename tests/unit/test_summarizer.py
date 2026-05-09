@@ -67,16 +67,16 @@ async def test_prompt_rejects_dataset_shape_examples():
     assert "dataset shape" in captured["prompt"].lower()
     assert "transferable" in captured["prompt"].lower()
     # Cap is part of the prompt the model sees.
-    assert "3-5 atoms" in captured["prompt"]
+    assert "3-7 atoms" in captured["prompt"]
 
 
-async def test_more_than_five_atoms_truncated():
-    """Backstop: if the model returns more than 5 atoms, we keep at most 5."""
+async def test_more_than_seven_atoms_truncated():
+    """Backstop: if the model returns more than 7 atoms, we keep at most 7."""
     backend = _FakeBackend(
         json.dumps([{"claim": f"finding {i}", "confidence": 0.8} for i in range(10)])
     )
     atoms = await extract_knowledge_atoms(backend, transcript="x", domain_id="d")
-    assert len(atoms) <= 5
+    assert len(atoms) <= 7
 
 
 async def test_non_numeric_confidence_treated_as_default():

@@ -122,7 +122,11 @@ class AgentOrchestrator:
         if domain is not None:
             _emit("indexing prior knowledge")
             atoms = await self.lab.knowledge_linker.get_domain_knowledge(domain_id)
-            accumulated_knowledge = [f"- [{a.confidence:.1f}] {a.claim}" for a in atoms[:20]]
+            accumulated_knowledge = []
+            for a in atoms[:20]:
+                accumulated_knowledge.append(f"- [{a.confidence:.1f}] {a.claim}")
+                if a.context:
+                    accumulated_knowledge.append(f"    ↳ {a.context}")
 
             # PROGRAM.md (if present) overrides domain.prompt for this run.
             base_dir: Path | None = None
