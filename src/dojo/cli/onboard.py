@@ -20,6 +20,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import questionary
 import typer
 import yaml
 from rich.console import Console
@@ -61,6 +62,47 @@ MAX_INSTALL_RETRIES = 3
 def _stdin_is_tty() -> bool:
     """Indirection so tests can patch the TTY check (CliRunner replaces stdin)."""
     return sys.stdin.isatty()
+
+
+def _use_arrow_selectors() -> bool:
+    """True iff we should render questionary arrow-key selectors.
+
+    False in non-TTY contexts (test runners, piped scripts) — fall back to
+    Rich's text-input choice prompt so CliRunner-driven tests keep working.
+    Distinct from `_stdin_is_tty` (the entry-time refusal gate) so tests
+    can keep entry open while still exercising the text fallback path.
+    """
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _select(
+    question: str,
+    choices: list[tuple[str, str]],
+    *,
+    default: str,
+) -> str:
+    """Arrow-key selector with a non-TTY text fallback.
+
+    `choices` is a list of `(display_label, value)` tuples; `default` is the
+    value (not the label) that should be pre-selected. Returns the chosen value.
+    """
+    if _use_arrow_selectors():
+        display_to_value = {label: value for label, value in choices}
+        default_label = next((label for label, value in choices if value == default), None)
+        answer = questionary.select(
+            question,
+            choices=list(display_to_value.keys()),
+            default=default_label,
+        ).ask()
+        if answer is None:
+            # Ctrl-C / Ctrl-D inside questionary returns None.
+            raise typer.Exit(code=0)
+        return display_to_value[answer]
+
+    # Text fallback — used by tests and any non-TTY caller that still made
+    # it past the entry guard (e.g. `--preset` runs with piped input).
+    values = [value for _, value in choices]
+    return Prompt.ask(question, choices=values, default=default)
 
 
 def onboard(
@@ -267,11 +309,15 @@ def _handle_existing_dojo_dir(config_dir: Path) -> bool:
         f"[yellow]existing[/yellow] [cyan]{config_dir}[/cyan] directory found "
         "with Dojo state in it."
     )
-    choice = Prompt.ask(
-        "[U]se existing / [O]verwrite / [A]bort",
-        choices=["u", "o", "a"],
+    choice = _select(
+        "What should I do with it?",
+        choices=[
+            ("Use existing", "u"),
+            ("Overwrite (delete and start fresh)", "o"),
+            ("Abort", "a"),
+        ],
         default="u",
-    ).lower()
+    )
     if choice == "a":
         console.print("aborted.")
         return False
@@ -326,16 +372,37 @@ def _prompt_config_choices(config_path: Path) -> None:
     file readable.
     """
     console.print()
-    console.print("[bold]Config[/bold] — press enter to accept the default in [dim]parens[/dim].")
+    console.print("[bold]Config[/bold] — pick or accept the highlighted default.")
 
-    agent_backend = Prompt.ask("Agent backend", choices=["claude", "stub"], default="claude")
-    tracking_backend = Prompt.ask("Tracking backend", choices=["file", "mlflow"], default="file")
+    agent_backend = _select(
+        "Agent backend",
+        choices=[
+            ("Claude (uses your local `claude` CLI auth)", "claude"),
+            ("Stub (deterministic, no LLM — for offline / CI)", "stub"),
+        ],
+        default="claude",
+    )
+    tracking_backend = _select(
+        "Tracking backend",
+        choices=[
+            ("File (write metrics to local JSON)", "file"),
+            ("MLflow (your existing MLflow server)", "mlflow"),
+        ],
+        default="file",
+    )
     mlflow_uri: str | None = None
     mlflow_experiment: str | None = None
     if tracking_backend == "mlflow":
         mlflow_uri = Prompt.ask("MLflow tracking URI", default="file:./mlruns")
         mlflow_experiment = Prompt.ask("MLflow experiment name", default="dojo")
-    linker = Prompt.ask("Knowledge linker", choices=["keyword", "llm"], default="keyword")
+    linker = _select(
+        "Knowledge linker (how RELATED_TO links between knowledge atoms are picked)",
+        choices=[
+            ("Keyword (free, fast, default)", "keyword"),
+            ("LLM (one Claude call per write_knowledge — better quality, costs tokens)", "llm"),
+        ],
+        default="keyword",
+    )
 
     # Only patch when the user changed something away from defaults.
     _patch_config_full(
@@ -392,20 +459,24 @@ def _resolve_program_and_setup(
         console.print(f"[green]✓[/green] using preset: {preset.label}")
         return preset.program_md, preset.setup_md, preset
 
-    # Side-prompt — default no.
-    options = sorted(PRESETS.keys())
-    if options:
+    # Side-prompt — default custom.
+    if PRESETS:
         console.print()
         console.print(
             "[bold]PROGRAM.md + SETUP.md[/bold] — describe your dataset + evaluation, "
             "or use a preset to try the framework on a canned sklearn dataset."
         )
-        choice = Prompt.ask(
-            f"Use a preset? [n / {' / '.join(options)}]",
-            choices=["n", *options],
-            default="n",
+        preset_choices: list[tuple[str, str]] = [
+            ("Custom (describe your own dataset)", "custom"),
+        ]
+        for key in sorted(PRESETS.keys()):
+            preset_choices.append((PRESETS[key].label, key))
+        choice = _select(
+            "How would you like to set up PROGRAM.md + SETUP.md?",
+            choices=preset_choices,
+            default="custom",
         )
-        if choice != "n":
+        if choice != "custom":
             preset = PRESETS[choice]
             console.print(f"[green]✓[/green] using preset: {preset.label}")
             return preset.program_md, preset.setup_md, preset

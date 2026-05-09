@@ -137,7 +137,7 @@ def test_onboard_custom_path_writes_user_text(onboard_dir: Path):
             "keyword",  # linker
             "my-research",  # domain name
             "",  # description
-            "n",  # decline preset side-prompt
+            "custom",  # decline preset side-prompt (use custom flow)
             "the median house value",  # target
             "RMSE under 0.5",  # success
             "use sklearn fetch_california_housing",  # dataset
