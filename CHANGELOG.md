@@ -13,6 +13,12 @@ for the release workflow.
 
 ## [Unreleased]
 
+## [v0.0.18] - 2026-05-09
+
+### Agent prompts
+
+- **Don't call `TodoWrite`.** [src/dojo/agents/prompts.py](src/dojo/agents/prompts.py) now explicitly tells the agent not to use the `TodoWrite` built-in and to narrate progress as plain text between tool calls instead. The dojo CLI doesn't surface `TodoWrite` content, so when the agent reached for it the user's view of the run went silent for long stretches between experiments. (#18)
+
 ## [v0.0.17] - 2026-05-09
 
 ### Agent prompts

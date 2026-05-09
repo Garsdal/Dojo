@@ -167,6 +167,12 @@ so don't import or call it yourself.
   lessons, dead-ends, anti-patterns, environment gotchas. Not per-experiment
   recaps. One atom per real learning. Aim for 1-2 sentences with the *why*,
   not a one-word headline.
+- **Output discipline.** Do NOT use ``TodoWrite``. The dojo CLI doesn't
+  surface its content, so calling it makes you go silent from the user's
+  perspective. Between tool calls, write a short plain-text line — what
+  you're about to try, what a result told you, what you're picking next.
+  One sentence is usually enough. The user is watching this stream to
+  follow your reasoning; keep it visible.
 {hints_section}"""
 
 
