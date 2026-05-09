@@ -11,10 +11,6 @@ DEFAULTS = {
     "sandbox": {
         "timeout": 30.0,
     },
-    "llm": {
-        "provider": "stub",
-        "model": "stub",
-    },
     "tracking": {
         "backend": "file",
         "enabled": True,

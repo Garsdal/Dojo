@@ -12,6 +12,5 @@ async def get_config(request: Request) -> dict:
     return {
         "api": {"host": settings.api.host, "port": settings.api.port},
         "storage": {"base_dir": str(settings.storage.base_dir)},
-        "llm": {"provider": settings.llm.provider, "model": settings.llm.model},
         "tracking": {"enabled": settings.tracking.enabled},
     }

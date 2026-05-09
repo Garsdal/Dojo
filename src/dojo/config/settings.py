@@ -13,14 +13,6 @@ class APISettings(BaseSettings):
     port: int = 8000
 
 
-class LLMSettings(BaseSettings):
-    """LLM provider configuration."""
-
-    provider: str = "stub"
-    model: str = "stub"
-    api_key: str = ""
-
-
 class SandboxSettings(BaseSettings):
     """Sandbox execution configuration."""
 
@@ -103,7 +95,6 @@ class Settings(BaseSettings):
     )
 
     api: APISettings = Field(default_factory=APISettings)
-    llm: LLMSettings = Field(default_factory=LLMSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     storage: StorageSettings = Field(default_factory=StorageSettings)
     tracking: TrackingSettings = Field(default_factory=TrackingSettings)
