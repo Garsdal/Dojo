@@ -252,9 +252,14 @@ TASK_TYPE_REGISTRY: dict[TaskType, TaskTypeSpec] = {
 
 The training code the agent passes to `run_experiment_code` is what mirrors Karpathy's `train.py`. Per-run, that code is allowed to be anything; per-domain, what it can *do* is constrained by the Task tools available to it.
 
-### 3.5 Knowledge atoms + linking (existing, no changes for now)
+### 3.5 Knowledge atoms + linking
 
-The current [`KeywordKnowledgeLinker`](src/dojo/runtime/keyword_linker.py) is fine. Atoms are immutable; links are `CREATED_BY` and `RELATED_TO`. We can swap in an agentic linker later behind the same `KnowledgeLinker` interface, but it's not on the critical path.
+Atoms are immutable; links are `CREATED_BY` and `RELATED_TO`. The first-pass `KeywordKnowledgeLinker` was deliberately minimal; with the task contract + experiment lifecycle now producing atoms at a useful rate, the storage layer is being made more durable (issue #5):
+
+- **File-per-atom storage.** Atoms live at `.dojo/knowledge/{domain_id}/{atom_id}.md` (YAML frontmatter + body), not in a single `atoms.json`. Grep-friendly and human-readable on disk; the abstract data model maps cleanly to a Postgres row + jsonb when we add a remote store, so the local layout doesn't lock us in.
+- **`LLMKnowledgeLinker`** is a selectable alternative behind the same `KnowledgeLinker` interface. It only changes how `RELATED_TO` links are picked (LLM call vs. keyword overlap); `KeywordKnowledgeLinker` stays the default.
+
+**Search stays text-only over `claim` / `context` / `action`, regardless of which linker created the atoms.** The two linkers produce identical atoms, searched identically — they only differ in which `RELATED_TO` edges exist on disk. Following `RELATED_TO` to expand search results, embedding/vector retrieval, and faceted/tag-based queries are explicit non-goals until the simple path proves insufficient (see §13).
 
 ---
 
@@ -614,7 +619,9 @@ Pinning the calls so they don't get re-litigated. If you disagree with one of th
 Deliberately out of scope for this rewrite. We can revisit any of these later, but they should not influence current decisions.
 
 - **Recursive self-improvement / meta-agent.** A meta-agent that proposes hypotheses *for* the agent — interesting, but it sits *above* this layer and doesn't change anything below it.
-- **Embedding-based knowledge retrieval.** Keyword overlap is fine for now; an agentic linker comes later behind the existing interface.
+- **Embedding-based knowledge retrieval.** Keyword overlap is fine for now. `LLMKnowledgeLinker` (issue #5) is an agentic *linker*, not an agentic *retriever* — it picks `RELATED_TO` edges at write time but doesn't change the search path.
+- **`RELATED_TO`-graph traversal at query time.** The graph is built and visible on the atom-detail page, but `search_knowledge` returns only direct text matches. Following the graph to expand results is a future change.
+- **Tag / faceted retrieval on knowledge atoms.** No `tags` field on atoms today. Add only when we have evidence the simple text path is the bottleneck.
 - **Multi-host / distributed compute.** All compute is local until the closed cloud layer.
 - **Notebook-style interactive runs.** The unit is an autonomous run, not a REPL session.
 - **Generic "task type plugin system".** Tasks are typed via the registry; we add new entries when we need them, not via a plugin mechanism.
