@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DOJO_",
         env_nested_delimiter="__",
+        # Tolerate unknown top-level blocks in `.dojo/config.yaml` — when we
+        # delete a settings group (e.g. the `llm:` block in v0.0.16), users
+        # with an old config from a previous release shouldn't hit a hard
+        # ValidationError on first run. Pre-1.0 break is fine, surprise
+        # crashes on upgrade are not.
+        extra="ignore",
     )
 
     api: APISettings = Field(default_factory=APISettings)

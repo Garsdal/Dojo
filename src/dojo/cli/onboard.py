@@ -238,15 +238,24 @@ async def _onboard_async(
 
 
 def _check_cwd_footgun(cwd: Path) -> None:
-    """Warn if cwd is the cloned Dojo repo itself."""
+    """Heads-up when cwd is the Dojo source tree itself.
+
+    Two valid intents land here:
+      - User accidentally cd'd into a Dojo checkout (e.g. via
+        `uv --directory /path/to/Dojo run dojo onboard`) and meant to be
+        in their own ML project. Catching this saves them from creating
+        `.dojo/` in the wrong place.
+      - User is working on Dojo itself or smoke-testing the CLI from a
+        checkout. This is fine — proceed.
+    """
     if is_path_inside_dojo_repo(cwd):
         console.print(
-            "[yellow]warning:[/yellow] this directory looks like the cloned Dojo repo "
-            "itself — running `dojo onboard` here will create `.dojo/` inside the Dojo "
-            "source tree, which is almost certainly not what you want. "
-            "Cd into your own project (or a fresh empty dir) and rerun."
+            "[dim]heads-up: this directory looks like the Dojo source tree.[/dim]\n"
+            "  - if you meant to use Dojo on your own ML project, cd there and rerun.\n"
+            "  - if you're working on Dojo itself or smoke-testing from a checkout, "
+            "this is fine — `.dojo/` will live here."
         )
-        if not Confirm.ask("Continue anyway?", default=False):
+        if not Confirm.ask("Proceed?", default=True):
             raise typer.Exit(code=0)
 
 

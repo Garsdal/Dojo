@@ -33,7 +33,7 @@ for the release workflow.
 
 ### Removed
 
-- **`LLMSettings` and `Settings.llm`** ([src/dojo/config/settings.py](src/dojo/config/settings.py)) — dead config block (`provider` / `model` / `api_key`) that no code consumed except the `/config` endpoint that echoed it back to the frontend. Provider selection lives on `agent.backend`; the model used for one-shot completions lives on `agent.tool_generation_model` (and `memory.llm_linker_model` for the LLM linker added in v0.0.15). The `/config` response no longer includes `llm`, and newly-written `.dojo/config.yaml` files no longer contain the `llm:` block. Old configs with a stray `llm:` are tolerated by pydantic-settings (extras ignored under default config) — no migration needed. (#14)
+- **`LLMSettings` and `Settings.llm`** ([src/dojo/config/settings.py](src/dojo/config/settings.py)) — dead config block (`provider` / `model` / `api_key`) that no code consumed except the `/config` endpoint that echoed it back to the frontend. Provider selection lives on `agent.backend`; the model used for one-shot completions lives on `agent.tool_generation_model` (and `memory.llm_linker_model` for the LLM linker added in v0.0.15). The `/config` response no longer includes `llm`, and newly-written `.dojo/config.yaml` files no longer contain the `llm:` block. The `Settings` model now uses `extra="ignore"` so users with a stale `llm:` block from a pre-v0.0.16 config don't hit a hard `ValidationError` on first run after upgrading — the block is silently dropped. (#14)
 
 ## [v0.0.15] - 2026-05-09
 
