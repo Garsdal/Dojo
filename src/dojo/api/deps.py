@@ -2,12 +2,17 @@
 
 from pathlib import Path
 
+from dojo.agents.backend import AgentBackend
+from dojo.agents.factory import create_agent_backend
 from dojo.compute.local import LocalCompute
 from dojo.config.settings import Settings
+from dojo.interfaces.knowledge_link_store import KnowledgeLinkStore
+from dojo.interfaces.knowledge_linker import KnowledgeLinker
 from dojo.interfaces.memory_store import MemoryStore
 from dojo.interfaces.tracking import TrackingConnector
 from dojo.runtime.keyword_linker import KeywordKnowledgeLinker
 from dojo.runtime.lab import LabEnvironment
+from dojo.runtime.llm_linker import LLMKnowledgeLinker
 from dojo.sandbox.local import LocalSandbox
 from dojo.storage.local import (
     LocalArtifactStore,
@@ -63,26 +68,58 @@ def _build_memory(settings: Settings) -> MemoryStore:
     if backend == "local":
         from dojo.storage.local import LocalMemoryStore
 
-        base = Path(settings.storage.base_dir) / "memory"
+        base = Path(settings.storage.base_dir) / "knowledge"
         logger.info("memory_backend", backend="local", path=str(base))
         return LocalMemoryStore(base_dir=base)
 
     raise ValueError(f"Unknown memory backend: {backend!r}")
 
 
+def _build_linker(
+    settings: Settings,
+    memory_store: MemoryStore,
+    link_store: KnowledgeLinkStore,
+) -> KnowledgeLinker:
+    """Build the knowledge linker. Atom shape + search semantics are
+    identical across linkers; the choice only affects how RELATED_TO links
+    are picked at write time (see CLAUDE.md "Knowledge linking")."""
+    linker = settings.memory.linker
+
+    if linker == "keyword":
+        logger.info("knowledge_linker", linker="keyword")
+        return KeywordKnowledgeLinker(memory_store, link_store)
+
+    if linker == "llm":
+        model = settings.memory.llm_linker_model or settings.agent.tool_generation_model
+        backend = create_agent_backend(settings.agent.backend, model=model)
+        # Surface the misconfiguration at lab-build time per the project's
+        # "no silent fallbacks" rule: a backend that doesn't override
+        # `complete()` will raise NotImplementedError on every linker write,
+        # and we'd rather fail loud now than mid-run.
+        if type(backend).complete is AgentBackend.complete:
+            raise ValueError(
+                f"memory.linker='llm' requires an AgentBackend that implements "
+                f"complete(); the configured agent.backend={settings.agent.backend!r} "
+                f"does not. Use memory.linker='keyword' or switch agent.backend."
+            )
+        logger.info(
+            "knowledge_linker",
+            linker="llm",
+            agent_backend=settings.agent.backend,
+            model=model,
+        )
+        return LLMKnowledgeLinker(memory_store, link_store, backend=backend)
+
+    raise ValueError(f"Unknown memory.linker: {linker!r}")
+
+
 def build_lab(settings: Settings) -> LabEnvironment:
-    """Construct the full LabEnvironment from application settings.
-
-    Args:
-        settings: Application settings.
-
-    Returns:
-        A fully wired LabEnvironment.
-    """
+    """Construct the full LabEnvironment from application settings."""
     base = Path(settings.storage.base_dir)
 
     memory_store = _build_memory(settings)
     knowledge_link_store = LocalKnowledgeLinkStore(base_dir=base / "knowledge_links")
+    knowledge_linker = _build_linker(settings, memory_store, knowledge_link_store)
 
     return LabEnvironment(
         compute=LocalCompute(),
@@ -93,7 +130,7 @@ def build_lab(settings: Settings) -> LabEnvironment:
         tracking=_build_tracking(settings),
         domain_store=LocalDomainStore(base_dir=base / "domains"),
         knowledge_link_store=knowledge_link_store,
-        knowledge_linker=KeywordKnowledgeLinker(memory_store, knowledge_link_store),
+        knowledge_linker=knowledge_linker,
         run_store=LocalRunStore(base_dir=base / "runs"),
         settings=settings,
     )
