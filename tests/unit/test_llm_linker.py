@@ -133,14 +133,22 @@ async def test_empty_candidate_list_short_circuits(memory_store, link_store) -> 
 
 
 async def test_ids_outside_candidate_set_are_filtered(memory_store, link_store) -> None:
-    """LLM hallucinates an unknown id → it's silently dropped."""
-    seed_linker, _ = _make_linker(memory_store, link_store, response="[]")
-    await _seed(seed_linker, "An existing atom")
+    """LLM hallucinates an unknown id → it's silently dropped.
 
-    linker, _ = _make_linker(memory_store, link_store, response=json.dumps(["01XX_DOES_NOT_EXIST"]))
+    The seed claim shares keywords with the new finding so it lands in the
+    candidate set; the hallucinated id does not, so it must be filtered.
+    """
+    seed_linker, _ = _make_linker(memory_store, link_store, response="[]")
+    await _seed(seed_linker, "Existing finding about regression baselines")
+
+    linker, _ = _make_linker(
+        memory_store,
+        link_store,
+        response=json.dumps(["01XX_DOES_NOT_EXIST"]),
+    )
     result = await linker.produce_knowledge(
         context="ctx",
-        claim="new finding",
+        claim="New finding about regression baselines",
         domain_id="dom-A",
         experiment_id="exp-2",
     )

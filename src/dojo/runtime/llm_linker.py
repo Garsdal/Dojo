@@ -112,14 +112,27 @@ class LLMKnowledgeLinker(KnowledgeLinker):
     # ----------------------------------------------------------- private
 
     async def _candidates(self, atom: KnowledgeAtom) -> list[KnowledgeAtom]:
+        """Pick candidates by text relevance, not recency.
+
+        We re-use the same keyword search the agent's `search_knowledge`
+        tool runs, so a relevant atom from a year ago and a recent one are
+        treated equally — recency only matters when keywords match. This
+        keeps the LLM's prompt focused on plausible relatedness candidates
+        instead of "the last N atoms in the domain regardless of topic".
+        """
         if not atom.domain_id:
             return []
-        domain_atoms = await self._memory.list_for_domain(atom.domain_id)
-        # Stable order: by created_at ascending, then id. Take the most-recent
-        # _MAX_CANDIDATES so older lore doesn't crowd out current findings.
-        domain_atoms.sort(key=lambda a: (a.created_at, a.id))
-        domain_atoms = [a for a in domain_atoms if a.id != atom.id]
-        return domain_atoms[-_MAX_CANDIDATES:]
+        query = f"{atom.claim} {atom.context} {atom.action}".strip()
+        if not query:
+            return []
+        # Over-fetch by 1: `produce_knowledge` already wrote `atom` into
+        # the store before this runs, so it shows up as a self-match.
+        hits = await self._memory.search(
+            query,
+            limit=_MAX_CANDIDATES + 1,
+            domain_id=atom.domain_id,
+        )
+        return [h for h in hits if h.id != atom.id][:_MAX_CANDIDATES]
 
     async def _pick_related(
         self, atom: KnowledgeAtom, candidates: list[KnowledgeAtom]
