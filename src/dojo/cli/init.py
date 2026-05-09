@@ -29,17 +29,15 @@ from rich.console import Console
 from dojo.cli._lab import build_cli_lab
 from dojo.cli.config import config_init
 from dojo.cli.state import set_current_domain_id
-from dojo.core.domain import (
-    Domain,
-    DomainStatus,
-    Workspace,
-    WorkspaceSource,
-)
 from dojo.core.task import TaskType
 from dojo.runtime.program_loader import default_program_template, write_program
 from dojo.runtime.setup_loader import default_setup_template, write_setup
-from dojo.runtime.task_service import TaskService
-from dojo.runtime.workspace_service import WorkspaceService
+from dojo.runtime.setup_orchestrator import (
+    build_task_config,
+    build_workspace_from_arg,
+    create_domain_with_workspace,
+    create_regression_task,
+)
 
 console = Console()
 
@@ -149,41 +147,33 @@ async def _init_async(
     if not description:
         description = _ask("Description (optional)", default="", non_interactive=non_interactive)
 
-    workspace_obj = _build_workspace(workspace_arg)
+    try:
+        workspace_obj = build_workspace_from_arg(workspace_arg)
+    except FileNotFoundError as e:
+        console.print(f"[red]error:[/red] {e}")
+        raise typer.Exit(code=EXIT_USER_ERROR) from e
+
     with console.status(
         f"[bold]creating domain {name!r}...[/bold]",
         spinner="dots",
     ):
-        domain = Domain(
+        domain, workspace_warning = await create_domain_with_workspace(
+            lab=lab,
             name=name,
             description=description,
-            status=DomainStatus.ACTIVE,
             workspace=workspace_obj,
+            storage_base_dir=Path(settings.storage.base_dir),
+            skip_workspace_setup=skip_setup,
         )
-        await lab.domain_store.save(domain)
     console.print(f"[green]✓[/green] domain created: {domain.id} ({domain.name})")
 
-    if (
-        not skip_setup
-        and workspace_obj is not None
-        and workspace_obj.source != WorkspaceSource.EMPTY
-        and workspace_obj.path
-    ):
-        ws_service = WorkspaceService(Path(settings.storage.base_dir))
-        try:
-            with console.status(
-                "[bold]setting up workspace (venv + deps, can take a few minutes)...[/bold]",
-                spinner="dots",
-            ):
-                updated = await ws_service.setup(domain)
-                domain.workspace = updated
-                await lab.domain_store.save(domain)
-            console.print(f"[green]✓[/green] workspace ready: {updated.path}")
-        except Exception as e:
-            console.print(f"[yellow]warning:[/yellow] workspace setup failed: {e}")
-            console.print(
-                f"Continuing — fix manually or rerun `POST /domains/{domain.id}/workspace/setup`"
-            )
+    if workspace_warning is not None:
+        console.print(f"[yellow]warning:[/yellow] workspace setup failed: {workspace_warning}")
+        console.print(
+            f"Continuing — fix manually or rerun `POST /domains/{domain.id}/workspace/setup`"
+        )
+    elif domain.workspace and domain.workspace.path:
+        console.print(f"[green]✓[/green] workspace ready: {domain.workspace.path}")
 
     # ---- 3. Task creation ---------------------------------------------------
     try:
@@ -194,7 +184,7 @@ async def _init_async(
         )
         raise typer.Exit(code=EXIT_USER_ERROR) from e
 
-    task_config = _build_task_config(
+    task_config = build_task_config(
         ttype, data_path=data_path, target_column=target_column, test_split=test_split
     )
 
@@ -202,14 +192,9 @@ async def _init_async(
         f"[bold]creating {ttype.value} task...[/bold]",
         spinner="dots",
     ):
-        task_svc = TaskService(lab)
-        task = await task_svc.create(
-            domain.id, task_type=ttype, name=f"{ttype.value} task", config=task_config
+        domain, task = await create_regression_task(
+            lab=lab, domain=domain, task_type=ttype, config=task_config
         )
-
-        # Reload so domain.task is populated for the template
-        domain = await lab.domain_store.load(domain.id)
-        assert domain is not None  # just saved
     console.print(f"[green]✓[/green] task created: {task.id} ({task.type.value})")
 
     # ---- 4. PROGRAM.md scaffold ---------------------------------------------
@@ -254,45 +239,14 @@ async def _init_async(
     )
     console.print("  4. run [bold]dojo run[/bold] — start the agent")
     console.print(
-        "\n[dim]artifacts: anything `evaluate()` saves is archived every run; "
+        "\n[dim]tip: `dojo onboard` walks through these steps interactively "
+        "in one go — recommended for first-time setup.[/dim]"
+    )
+    console.print(
+        "[dim]artifacts: anything `evaluate()` saves is archived every run; "
         "`train()` may save the model when worth comparing across experiments. "
         "See README §Artifacts.[/dim]"
     )
-
-
-def _build_task_config(
-    ttype: TaskType,
-    *,
-    data_path: str | None,
-    target_column: str | None,
-    test_split: float,
-) -> dict:
-    """Translate optional CLI hints into the task.config dict.
-
-    For regression, every field is optional — when missing, the AI generator
-    falls back to whatever the user wrote in PROGRAM.md (e.g. a sklearn loader,
-    a URL, a description in plain English).
-    """
-    if ttype != TaskType.REGRESSION:
-        return {}
-
-    cfg: dict = {"test_split_ratio": test_split}
-    if data_path:
-        cfg["data_path"] = str(Path(data_path).expanduser())
-    if target_column:
-        cfg["target_column"] = target_column
-    return cfg
-
-
-def _build_workspace(arg: str) -> Workspace | None:
-    """Convert the --workspace flag into a Workspace dataclass."""
-    if arg.lower() == "empty":
-        return Workspace(source=WorkspaceSource.EMPTY)
-    path = Path(arg).expanduser().resolve()
-    if not path.exists():
-        console.print(f"[red]error:[/red] workspace path does not exist: {path}")
-        raise typer.Exit(code=EXIT_USER_ERROR)
-    return Workspace(source=WorkspaceSource.LOCAL, path=str(path))
 
 
 def _patch_config(config_path: Path, *, tracking: str | None, agent_backend: str | None) -> None:
