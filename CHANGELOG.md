@@ -13,6 +13,16 @@ for the release workflow.
 
 ## [Unreleased]
 
+## [v0.0.17] - 2026-05-09
+
+### Agent prompts
+
+(none in this release)
+
+### Fixed
+
+- **`ClaudeAgentBackend.complete()`** ([src/dojo/agents/backends/claude.py](src/dojo/agents/backends/claude.py)) — when `dojo` was launched from inside a Claude Code shell, every `claude -p` shell-out hit the CLI's nested-session guard, which writes its error to stdout and leaves stderr empty. Our wrapper only logged stderr, so the failure surfaced as `error=''` and silently fell back to the keyword linker. Two changes: (1) strip `CLAUDECODE` from the subprocess env so the guard doesn't trip in the first place, and (2) fall back to stdout when stderr is empty so the actual CLI error survives in the `RuntimeError`. Affects `LLMKnowledgeLinker`, the end-of-run summarizer, and `dojo task setup` tool generation. (#16)
+
 ## [v0.0.16] - 2026-05-09
 
 ### Agent prompts
