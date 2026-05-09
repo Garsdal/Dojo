@@ -23,7 +23,6 @@ def create_knowledge_tools(lab: LabEnvironment) -> list[ToolDef]:
             data={
                 "atom_id": result.atom_id,
                 "action": result.action,
-                "version": result.version,
                 "confidence": result.confidence,
                 "related_to": result.related_to,
             }
@@ -53,12 +52,13 @@ def create_knowledge_tools(lab: LabEnvironment) -> list[ToolDef]:
             data=[
                 {
                     "id": a.id,
+                    "domain_id": a.domain_id,
+                    "source_experiment_id": a.source_experiment_id,
                     "context": a.context,
                     "claim": a.claim,
                     "action": a.action,
                     "confidence": a.confidence,
                     "evidence_ids": a.evidence_ids,
-                    "version": a.version,
                 }
                 for a in atoms
             ]
@@ -76,11 +76,12 @@ def create_knowledge_tools(lab: LabEnvironment) -> list[ToolDef]:
             data=[
                 {
                     "id": a.id,
+                    "domain_id": a.domain_id,
+                    "source_experiment_id": a.source_experiment_id,
                     "context": a.context,
                     "claim": a.claim,
                     "action": a.action,
                     "confidence": a.confidence,
-                    "version": a.version,
                 }
                 for a in atoms
             ]

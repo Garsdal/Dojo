@@ -9,20 +9,18 @@ from dojo.core.knowledge_link import KnowledgeLink
 class LinkingResult:
     """Result of the knowledge linking process."""
 
-    __slots__ = ("action", "atom_id", "confidence", "related_to", "version")
+    __slots__ = ("action", "atom_id", "confidence", "related_to")
 
     def __init__(
         self,
         *,
         atom_id: str,
         action: str = "created",
-        version: int = 1,
         confidence: float = 0.5,
         related_to: list[str] | None = None,
     ) -> None:
         self.atom_id = atom_id
         self.action = action
-        self.version = version
         self.confidence = confidence
         self.related_to = related_to
 
@@ -32,7 +30,9 @@ class KnowledgeLinker(ABC):
 
     Every knowledge write flows through a linker. The linker stores a new
     immutable atom and creates relational links (CREATED_BY, RELATED_TO).
-    Different implementations can use different similarity strategies.
+    Different implementations can use different similarity strategies, but
+    must produce identical atom shapes — search semantics are uniform across
+    linkers (text over claim/context/action).
     """
 
     @abstractmethod

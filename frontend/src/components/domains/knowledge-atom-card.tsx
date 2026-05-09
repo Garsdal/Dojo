@@ -55,7 +55,7 @@ export function KnowledgeAtomCard({ atom, domainBadge, onEvidenceClick }: Knowle
           )}
         </div>
 
-        {/* Right: confidence % + version + domain badge + chevron */}
+        {/* Right: confidence % + domain badge + chevron */}
         <div className="flex flex-col items-end gap-1 shrink-0 ml-2">
           <div className="flex items-center gap-1.5">
             {domainBadge && (
@@ -65,9 +65,6 @@ export function KnowledgeAtomCard({ atom, domainBadge, onEvidenceClick }: Knowle
             )}
             <span className="text-xs font-semibold text-blackberry">
               {Math.round(atom.confidence * 100)}%
-            </span>
-            <span className="text-[10px] text-grey bg-wheat/20 rounded-full px-1.5 py-0.5">
-              v{atom.version}
             </span>
           </div>
           {expanded ? (
@@ -151,9 +148,6 @@ export function KnowledgeAtomCard({ atom, domainBadge, onEvidenceClick }: Knowle
             </div>
           )}
 
-          {atom.version > 1 && (
-            <p className="text-xs text-grey">Updated {atom.version - 1} time{atom.version > 2 ? "s" : ""}</p>
-          )}
         </div>
       )}
     </div>
