@@ -58,6 +58,11 @@ EXIT_GATE = 3
 MAX_INSTALL_RETRIES = 3
 
 
+def _stdin_is_tty() -> bool:
+    """Indirection so tests can patch the TTY check (CliRunner replaces stdin)."""
+    return sys.stdin.isatty()
+
+
 def onboard(
     workspace: str = typer.Option(
         ".",
@@ -85,7 +90,7 @@ def onboard(
         )
         raise typer.Exit(code=EXIT_USER_ERROR)
 
-    if not sys.stdin.isatty() and preset is None:
+    if not _stdin_is_tty() and preset is None:
         console.print(
             "[red]error:[/red] `dojo onboard` is interactive and stdin is not a TTY. "
             "Use [cyan]dojo onboard --preset <key>[/cyan] for non-interactive preset "
