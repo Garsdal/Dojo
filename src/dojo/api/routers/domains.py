@@ -359,12 +359,13 @@ async def list_domain_knowledge(domain_id: str, request: Request) -> list[dict]:
     return [
         {
             "id": a.id,
+            "domain_id": a.domain_id,
+            "source_experiment_id": a.source_experiment_id,
             "context": a.context,
             "claim": a.claim,
             "action": a.action,
             "confidence": a.confidence,
             "evidence_ids": a.evidence_ids,
-            "version": a.version,
         }
         for a in atoms
     ]

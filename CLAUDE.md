@@ -211,16 +211,18 @@ Both share the same per-experiment `artifacts_dir`; anything written there is ar
 
 ### Knowledge linking
 
-Every `write_knowledge` call goes through [runtime/keyword_linker.py](src/dojo/runtime/keyword_linker.py). The linker:
+Every `write_knowledge` call goes through a `KnowledgeLinker` ([interfaces/knowledge_linker.py](src/dojo/interfaces/knowledge_linker.py)). Two implementations ship today:
 
-1. Always creates a new immutable atom (no merging).
-2. Searches similar atoms via keyword overlap (≥40% of smaller word set, ≥3 overlapping words).
-3. Records a `CREATED_BY` link to the experiment + domain.
-4. Records `RELATED_TO` links to similar atoms.
+- **`KeywordKnowledgeLinker`** ([runtime/keyword_linker.py](src/dojo/runtime/keyword_linker.py)) — default. Picks `RELATED_TO` candidates via keyword overlap (≥40% of smaller word set, ≥3 overlapping words).
+- **`LLMKnowledgeLinker`** ([runtime/llm_linker.py](src/dojo/runtime/llm_linker.py)) — opt-in via `memory.linker = "llm"`. Picks `RELATED_TO` candidates via one `AgentBackend.complete()` call per write, with keyword fallback on any LLM error. Reuses the lab's configured `agent.backend`; no separate completion-client abstraction.
+
+Both linkers do the same four things: create a new immutable atom (no merging), pick similar existing atoms in the same domain, record a `CREATED_BY` link to the experiment + domain, record `RELATED_TO` links to the similar atoms.
+
+**Search stays text-only over `claim` / `context` / `action`, regardless of which linker created the atoms.** The linkers differ only in *which* `RELATED_TO` edges land on disk — the atom shape and the search path are identical. Following `RELATED_TO` to expand search results, embedding similarity, and tag/faceted queries are explicit non-goals (see [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md) §13).
+
+Atoms are persisted file-per-atom under `.dojo/knowledge/{domain_id}/{atom_id}.md` (YAML frontmatter + body) by [storage/local/memory.py](src/dojo/storage/local/memory.py). Atoms with no `domain_id` go to `_global/`. The `links.json` blob in [storage/local/knowledge_link.py](src/dojo/storage/local/knowledge_link.py) tracks `CREATED_BY` + `RELATED_TO`. The abstract `MemoryStore` / `KnowledgeLinkStore` interfaces don't expose anything filesystem-specific, so a future Postgres adapter is a sibling drop-in (one row per atom, scalar columns + jsonb for `evidence_ids`, junction table for links).
 
 End of every run, [agents/summarizer.py](src/dojo/agents/summarizer.py) extracts durable findings from the transcript via a one-shot LLM call and writes them as atoms — fires for COMPLETED, FAILED, and STOPPED. Idempotent; silently skips when the backend can't `complete()` (e.g. the stub).
-
-An agentic linker is a planned alternative — slot it behind the same `KnowledgeLinker` interface in [interfaces/knowledge_linker.py](src/dojo/interfaces/knowledge_linker.py).
 
 ---
 

@@ -56,8 +56,17 @@ class TrackingSettings(BaseSettings):
 class MemorySettings(BaseSettings):
     """Knowledge memory configuration."""
 
-    backend: str = "local"  # "local" (future: "vector", "postgres")
+    backend: str = "local"  # "local" (future: "postgres")
     search_limit: int = 10  # Default number of results from search
+
+    # Linker selects how RELATED_TO links are picked at write time.
+    # Atom shape and search semantics are identical across linkers.
+    # "keyword" — overlap heuristic, free, default
+    # "llm"     — one AgentBackend.complete() call per write
+    linker: str = "keyword"
+    # Model used by LLMKnowledgeLinker. None falls back to
+    # `agent.tool_generation_model`. Only consulted when linker == "llm".
+    llm_linker_model: str | None = None
 
 
 class FrontendSettings(BaseSettings):

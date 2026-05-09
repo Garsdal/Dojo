@@ -75,13 +75,13 @@ export interface CodeRunDetail extends CodeRun {
 
 export interface KnowledgeAtom {
   id: string;
+  domain_id: string;
+  source_experiment_id: string;
   context: string;
   claim: string;
   action: string;
   confidence: number;
   evidence_ids: string[];
-  version: number;
-  supersedes: string | null;
 }
 
 export interface KnowledgeLink {
@@ -102,7 +102,6 @@ export interface KnowledgeDetail {
 export interface LinkingResult {
   atom_id: string;
   action: "created";
-  version: number;
   confidence: number;
   related_to: string[] | null;
 }

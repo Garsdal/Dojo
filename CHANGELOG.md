@@ -13,6 +13,29 @@ for the release workflow.
 
 ## [Unreleased]
 
+## [v0.0.15] - 2026-05-09
+
+### Agent prompts
+
+(none in this release)
+
+### Added
+
+- **`LLMKnowledgeLinker`** ([src/dojo/runtime/llm_linker.py](src/dojo/runtime/llm_linker.py)) — alternative knowledge linker selectable via `memory.linker = "llm"` (default `"keyword"`). One `AgentBackend.complete()` call per `write_knowledge` picks `RELATED_TO` candidates from up to 30 atoms in the same domain selected by **text relevance** (the new atom's `claim` / `context` / `action` is run through the same keyword search the agent's `search_knowledge` tool uses), not by recency — so a relevant atom from atom #47 of 500 is just as findable as yesterday's. Keyword-overlap fallback on any LLM error or malformed JSON. Search semantics are unchanged: text-only over `claim` / `context` / `action`. Reuses the lab's configured `agent.backend` — no separate completion-client abstraction. Fail-loud at `build_lab()` time if the configured backend doesn't override `complete()`. (#5)
+- **`MemorySettings.linker` and `MemorySettings.llm_linker_model`** ([src/dojo/config/settings.py](src/dojo/config/settings.py)) — new config knobs. `llm_linker_model` falls back to `agent.tool_generation_model` when unset; only consulted when `linker == "llm"`. (#5)
+- **`MemoryStore.list_for_domain(domain_id)`** ([src/dojo/interfaces/memory_store.py](src/dojo/interfaces/memory_store.py)) — first-class scoped listing. `MemoryStore.search(...)` now accepts an optional `domain_id`, replacing the "fetch all in domain, then filter in Python" branch in both the `search_knowledge` MCP tool and the `/knowledge/relevant` HTTP route. (#5)
+
+### Changed
+
+- **Knowledge atom storage migrated to file-per-atom** ([src/dojo/storage/local/memory.py](src/dojo/storage/local/memory.py)) — atoms now live at `.dojo/knowledge/{domain_id}/{atom_id}.md` with YAML frontmatter + body, replacing the single-blob `.dojo/memory/atoms.json`. Atoms with no `domain_id` go to `_global/`. Grep-friendly on disk; the in-process search is a pure-Python keyword scan over the same files. The abstract data model maps cleanly to a future Postgres adapter (one row per atom, jsonb for `evidence_ids`, junction table for links). **Existing pre-1.0 users:** the old `atoms.json` is no longer read; delete `.dojo/memory/` (or back it up) before upgrading. (#5)
+- **`KnowledgeAtom` schema cleanup** ([src/dojo/core/knowledge.py](src/dojo/core/knowledge.py)) — added `domain_id` and `source_experiment_id` so each atom is self-describing. Removed `version` and `supersedes` (vestigial — never read or written meaningfully). `evidence_ids` retained. The `/knowledge/*` HTTP responses, MCP tool result shapes, and frontend types are updated to match; the atom card UI no longer displays a `v1` badge or "Updated N times" line, and `useKnowledgeEvolution` becomes a simple cumulative count (atoms are immutable-append). (#5)
+- **`docs/MASTER_PLAN.md` §3.5 rewritten + new §13 non-goals** — describes the new direction (file-per-atom, selectable linker) and anchors the constraint that **search remains text-only over `claim`/`context`/`action`** regardless of which linker created the atoms. `RELATED_TO`-graph traversal at query time and tag/faceted retrieval are explicit non-goals until the simple path proves insufficient. (#5)
+- **`CLAUDE.md` "Knowledge linking" section** updated to match the new design; same text-search-only constraint anchored as the project-memory reference. (#5)
+
+### Removed
+
+- **`KnowledgeAtom.version` and `KnowledgeAtom.supersedes`** — see *Changed*. (#5)
+
 ## [v0.0.14] - 2026-05-09
 
 ### Agent prompts

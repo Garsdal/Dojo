@@ -11,29 +11,24 @@ export interface KnowledgeEvolutionPoint {
 }
 
 /**
- * Derives a knowledge evolution timeline from existing atom data.
- * Since there's no dedicated backend endpoint, we approximate from atoms' version numbers.
- * Atoms with version > 1 are treated as updates; version === 1 as new atoms.
- * We use the order they appear in the list as a proxy for time order.
+ * Derives a knowledge evolution timeline from atom data.
  *
- * TODO: Replace with GET /domains/{id}/knowledge/evolution when backend endpoint is added.
+ * Atoms are immutable-append, so every entry is "new" — cumulative is just
+ * the running atom count, and ``isUpdate`` is always false. The shape is
+ * preserved for the chart consumer; ``isUpdate`` may regain meaning if the
+ * model adds explicit supersession links later.
  */
 export function useKnowledgeEvolution(atoms: KnowledgeAtom[] | undefined): KnowledgeEvolutionPoint[] {
   return useMemo(() => {
     if (!atoms || atoms.length === 0) return [];
 
-    let cumulative = 0;
-    return atoms.map((atom, i) => {
-      const isUpdate = atom.version > 1;
-      if (!isUpdate) cumulative += 1;
-      return {
-        index: i + 1,
-        label: `#${i + 1}`,
-        atomId: atom.id,
-        cumulative,
-        isUpdate,
-        confidence: atom.confidence,
-      };
-    });
+    return atoms.map((atom, i) => ({
+      index: i + 1,
+      label: `#${i + 1}`,
+      atomId: atom.id,
+      cumulative: i + 1,
+      isUpdate: false,
+      confidence: atom.confidence,
+    }));
   }, [atoms]);
 }

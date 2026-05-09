@@ -17,13 +17,13 @@ class KnowledgeResponse(BaseModel):
     """API response for a knowledge atom."""
 
     id: str
+    domain_id: str = ""
+    source_experiment_id: str = ""
     context: str
     claim: str
     action: str
     confidence: float
     evidence_ids: list[str] = []
-    version: int = 1
-    supersedes: str | None = None
 
 
 class KnowledgeLinkResponse(BaseModel):
@@ -47,13 +47,13 @@ class KnowledgeDetailResponse(BaseModel):
 def _atom_to_response(atom: KnowledgeAtom) -> KnowledgeResponse:
     return KnowledgeResponse(
         id=atom.id,
+        domain_id=atom.domain_id,
+        source_experiment_id=atom.source_experiment_id,
         context=atom.context,
         claim=atom.claim,
         action=atom.action,
         confidence=atom.confidence,
         evidence_ids=atom.evidence_ids,
-        version=atom.version,
-        supersedes=atom.supersedes,
     )
 
 
@@ -62,11 +62,11 @@ async def list_knowledge(request: Request, domain_id: str | None = None) -> list
     """List all knowledge atoms, optionally filtered by domain."""
     lab = _get_lab(request)
 
-    if domain_id:
-        atoms = await lab.knowledge_linker.get_domain_knowledge(domain_id)
-        return [_atom_to_response(a) for a in atoms]
-
-    atoms = await lab.memory_store.list()
+    atoms = (
+        await lab.memory_store.list_for_domain(domain_id)
+        if domain_id
+        else await lab.memory_store.list()
+    )
     return [_atom_to_response(a) for a in atoms]
 
 
@@ -80,20 +80,7 @@ async def search_knowledge(
     """Search for relevant knowledge atoms, optionally scoped to a domain."""
     lab = _get_lab(request)
 
-    if domain_id:
-        atoms = await lab.knowledge_linker.get_domain_knowledge(domain_id)
-        # Apply keyword filter within domain knowledge
-        if query:
-            query_lower = query.lower()
-            keywords = query_lower.split()
-            atoms = [
-                a
-                for a in atoms
-                if any(kw in f"{a.context} {a.claim} {a.action}".lower() for kw in keywords)
-            ]
-        return [_atom_to_response(a) for a in atoms[:limit]]
-
-    atoms = await lab.memory_store.search(query, limit=limit)
+    atoms = await lab.memory_store.search(query, limit=limit, domain_id=domain_id or None)
     return [_atom_to_response(a) for a in atoms]
 
 
@@ -141,7 +128,6 @@ class LinkingResultResponse(BaseModel):
 
     atom_id: str
     action: str  # always "created"
-    version: int
     confidence: float
     related_to: list[str] | None = None
 
@@ -163,7 +149,6 @@ async def create_knowledge(body: CreateKnowledgeRequest, request: Request) -> Li
     return LinkingResultResponse(
         atom_id=result.atom_id,
         action=result.action,
-        version=result.version,
         confidence=result.confidence,
         related_to=result.related_to,
     )

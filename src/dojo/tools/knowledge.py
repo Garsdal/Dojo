@@ -23,42 +23,29 @@ def create_knowledge_tools(lab: LabEnvironment) -> list[ToolDef]:
             data={
                 "atom_id": result.atom_id,
                 "action": result.action,
-                "version": result.version,
                 "confidence": result.confidence,
                 "related_to": result.related_to,
             }
         )
 
     async def search_knowledge(args: dict[str, Any]) -> ToolResult:
-        domain_id = args.get("domain_id")
-
-        # If domain_id is specified, use domain-scoped search
-        if domain_id:
-            atoms = await lab.knowledge_linker.get_domain_knowledge(domain_id)
-            # Apply keyword filter within domain knowledge
-            query = args.get("query", "")
-            if query:
-                query_lower = query.lower()
-                keywords = query_lower.split()
-                atoms = [
-                    a
-                    for a in atoms
-                    if any(kw in f"{a.context} {a.claim} {a.action}".lower() for kw in keywords)
-                ]
-            atoms = atoms[: args.get("limit", 10)]
-        else:
-            atoms = await lab.memory_store.search(args["query"], limit=args.get("limit", 10))
+        atoms = await lab.memory_store.search(
+            args["query"],
+            limit=args.get("limit", 10),
+            domain_id=args.get("domain_id") or None,
+        )
 
         return ToolResult(
             data=[
                 {
                     "id": a.id,
+                    "domain_id": a.domain_id,
+                    "source_experiment_id": a.source_experiment_id,
                     "context": a.context,
                     "claim": a.claim,
                     "action": a.action,
                     "confidence": a.confidence,
                     "evidence_ids": a.evidence_ids,
-                    "version": a.version,
                 }
                 for a in atoms
             ]
@@ -66,9 +53,8 @@ def create_knowledge_tools(lab: LabEnvironment) -> list[ToolDef]:
 
     async def list_knowledge(args: dict[str, Any]) -> ToolResult:
         domain_id = args.get("domain_id")
-
         if domain_id:
-            atoms = await lab.knowledge_linker.get_domain_knowledge(domain_id)
+            atoms = await lab.memory_store.list_for_domain(domain_id)
         else:
             atoms = await lab.memory_store.list()
 
@@ -76,11 +62,12 @@ def create_knowledge_tools(lab: LabEnvironment) -> list[ToolDef]:
             data=[
                 {
                     "id": a.id,
+                    "domain_id": a.domain_id,
+                    "source_experiment_id": a.source_experiment_id,
                     "context": a.context,
                     "claim": a.claim,
                     "action": a.action,
                     "confidence": a.confidence,
-                    "version": a.version,
                 }
                 for a in atoms
             ]
