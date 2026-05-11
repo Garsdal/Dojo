@@ -13,6 +13,21 @@ for the release workflow.
 
 ## [Unreleased]
 
+## [v0.0.19] - 2026-05-11
+
+### Agent prompts
+
+- **Termination is the framework's call, not the agent's.** [src/dojo/agents/prompts.py](src/dojo/agents/prompts.py) gains a short "Termination" section telling the agent that the runtime owns when the run ends (cumulative turn / dollar / wall-clock budget, or `dojo stop`) and that it should never end the loop with a "done" message. Complements the new continuation loop — without this, even with the loop running the agent would still try to wrap up after a handful of experiments. (#6)
+
+### Added
+
+- **Continuation loop in `AgentOrchestrator`** ([src/dojo/agents/orchestrator.py](src/dojo/agents/orchestrator.py)). When the SDK stream ends naturally and budget remains, the orchestrator reconfigures the backend with the latest accumulated knowledge + remaining budget and runs another iteration. The loop terminates on cumulative `max_turns`, `max_budget_usd`, the new `max_wall_clock_s`, an `is_error` result, a backend error event, or `dojo stop`. `AgentRun` now tracks `cumulative_turns`, `cumulative_cost_usd`, and `iteration_count`. A new `continuation_started` event is emitted between iterations so the CLI / SSE stream can show "↻ continuing — iteration N (remaining: X turns, $Y)". New settings: `agent.max_wall_clock_s` (None by default) and `agent.auto_continue` (True; kill switch for legacy single-iteration behaviour). New CLI flags `--max-wall-clock-s` and `--no-continue`. (#6)
+
+### Changed
+
+- **End-of-run knowledge flush runs once per run, not per iteration.** [src/dojo/agents/orchestrator.py](src/dojo/agents/orchestrator.py) keeps `flush_run_knowledge` in the outer `finally` so a multi-iteration overnight run produces a single 3-7-atom summary over the full transcript, instead of N × 7 atoms + N × link writes. Atom and linker cost stays flat regardless of iteration count. (#6)
+- **Summarizer transcript truncation switched from head-take to tail-take.** [src/dojo/agents/summarizer.py](src/dojo/agents/summarizer.py) now keeps the last 8000 chars of the transcript instead of the first 8000. On long overnight runs the durable findings live at the end; a head-take threw them away and only ever surfaced early-baseline scaffolding to the extractor LLM. (#6)
+
 ## [v0.0.18] - 2026-05-09
 
 ### Agent prompts

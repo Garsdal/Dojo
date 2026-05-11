@@ -79,7 +79,10 @@ async def extract_knowledge_atoms(
         '- "experiment_id": ULID if known from transcript (optional)\n\n'
         "If nothing is durable, output [].\n\n"
         "Transcript:\n"
-        f"{transcript[:8000]}\n"
+        # Tail-take: for long multi-iteration overnight runs the durable
+        # findings live near the end of the transcript. A head-take would
+        # truncate them away and only ever surface early-baseline scaffolding.
+        f"{transcript[-8000:]}\n"
     )
 
     try:

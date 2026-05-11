@@ -26,7 +26,7 @@ async def _run_stub(lab, prompt: str) -> None:
     via `require_ready_task=False`.
     """
     backend = StubAgentBackend()
-    orchestrator = AgentOrchestrator(lab, backend)
+    orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
     run = await orchestrator.start(prompt, domain_id="test-domain", require_ready_task=False)
     await orchestrator.execute(run)
 

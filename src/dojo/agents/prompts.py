@@ -117,6 +117,16 @@ is a safety net, not the primary channel.
 After 2+ experiments, ``compare_experiments`` to ground your next move in
 the actual metric trajectory rather than a remembered impression.
 
+### Termination
+The **framework** decides when the run ends — not you. There is a cumulative
+turn / dollar / wall-clock budget enforced by the runtime, and the user can
+stop the run with ``dojo stop`` at any time. Until one of those fires, keep
+queuing the next hypothesis. **Never end the loop with a "I'm done" message
+or a long final summary** — there is always a next experiment worth trying
+(another model family, a feature transform, a more careful CV split). If
+you genuinely run out of ideas, ``search_knowledge`` for what previous runs
+explored that you haven't.
+
 ## Reading the workspace
 
 Bash / Read / Glob are available — use them, but with intent.

@@ -32,9 +32,21 @@ EXIT_TASK_NOT_READY = 3
 
 def run(
     domain: str | None = typer.Option(None, "--domain", "-d", help="Domain id or name"),
-    max_turns: int = typer.Option(50, "--max-turns", help="Maximum agent turns"),
+    max_turns: int = typer.Option(
+        50, "--max-turns", help="Cumulative max agent turns across continuations"
+    ),
     max_budget_usd: float | None = typer.Option(
-        None, "--max-budget-usd", help="Max spend cap in USD"
+        None, "--max-budget-usd", help="Cumulative max spend cap in USD"
+    ),
+    max_wall_clock_s: float | None = typer.Option(
+        None,
+        "--max-wall-clock-s",
+        help="Wall-clock cap (seconds) for the whole run. Checked between continuations.",
+    ),
+    no_continue: bool = typer.Option(
+        False,
+        "--no-continue",
+        help="Disable the continuation loop; one backend invocation then stop",
     ),
     no_watch: bool = typer.Option(
         False, "--no-watch", help="Start the run and exit without streaming events"
@@ -54,6 +66,8 @@ def run(
             domain_override=domain,
             max_turns=max_turns,
             max_budget_usd=max_budget_usd,
+            max_wall_clock_s=max_wall_clock_s,
+            auto_continue=not no_continue,
             no_watch=no_watch,
             prompt_override=prompt,
         )
@@ -65,6 +79,8 @@ async def _run_async(
     domain_override: str | None,
     max_turns: int,
     max_budget_usd: float | None,
+    max_wall_clock_s: float | None,
+    auto_continue: bool,
     no_watch: bool,
     prompt_override: str | None,
 ) -> None:
@@ -88,6 +104,10 @@ async def _run_async(
         backend,
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
+        max_wall_clock_s=max_wall_clock_s
+        if max_wall_clock_s is not None
+        else settings.agent.max_wall_clock_s,
+        auto_continue=auto_continue and settings.agent.auto_continue,
         permission_mode=settings.agent.permission_mode,
         cwd=settings.agent.cwd,
     )
@@ -252,6 +272,17 @@ def _print_event(event: AgentEvent) -> None:
         if cost is not None:
             bits.append(f"cost=${cost:.4f}")
         console.print(f"\n[dim]result: {', '.join(bits)}[/dim]")
+    elif et == "continuation_started":
+        iteration = data.get("iteration", "?")
+        rem_turns = data.get("remaining_turns")
+        rem_budget = data.get("remaining_budget_usd")
+        bits: list[str] = []
+        if rem_turns is not None:
+            bits.append(f"{rem_turns} turns")
+        if rem_budget is not None:
+            bits.append(f"${rem_budget:.2f}")
+        budget_str = f" (remaining: {', '.join(bits)})" if bits else ""
+        console.print(f"[dim]↻ continuing — iteration {iteration}{budget_str}[/dim]")
     elif et == "knowledge_flush_started":
         console.print("[dim]saving durable knowledge from this session…[/dim]")
     elif et == "knowledge_flush_completed":

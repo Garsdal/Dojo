@@ -72,8 +72,17 @@ class AgentSettings(BaseSettings):
     """Agent execution configuration."""
 
     backend: str = "claude"  # Which AgentBackend to use ("claude", "stub")
-    max_turns: int = 50  # Max tool-use round trips
+    max_turns: int = 50  # Max tool-use round trips (cumulative across continuations)
     max_budget_usd: float | None = None  # Max spend per run (None = unlimited)
+    # Wall-clock cap for the whole run (loop-wide). None = unlimited. The
+    # continuation loop checks this between iterations; an iteration that's
+    # already in flight isn't interrupted mid-stream, so brief overshoot
+    # is expected for long single iterations.
+    max_wall_clock_s: float | None = None
+    # When False, the orchestrator behaves as it did before the continuation
+    # loop landed — one backend invocation, end. Kill switch for users who
+    # want the legacy semantics.
+    auto_continue: bool = True
     permission_mode: str = "acceptEdits"  # Permission mode (backend-specific)
     cwd: str | None = None  # Working directory for code execution
     # Model used for one-shot tool generation (`dojo task generate` / `setup`).

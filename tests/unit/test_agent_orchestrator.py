@@ -38,7 +38,7 @@ async def test_start_invokes_progress_callback_in_order(lab: LabEnvironment):
     domain = await _make_ready_domain(lab)
 
     backend = create_agent_backend("stub")
-    orchestrator = AgentOrchestrator(lab, backend)
+    orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
     labels: list[str] = []
     await orchestrator.start(
@@ -60,6 +60,6 @@ async def test_start_invokes_progress_callback_in_order(lab: LabEnvironment):
 async def test_start_no_progress_callback_works(lab: LabEnvironment):
     """Default behaviour (progress=None) is unchanged."""
     domain = await _make_ready_domain(lab)
-    orchestrator = AgentOrchestrator(lab, create_agent_backend("stub"))
+    orchestrator = AgentOrchestrator(lab, create_agent_backend("stub"), auto_continue=False)
     run = await orchestrator.start(prompt="go", domain_id=domain.id)
     assert run.domain_id == domain.id
