@@ -81,13 +81,40 @@ asks for:
 
 - the agent + tracking + linker backends (sensible defaults — hit enter)
 - a domain name + description
-- your research goal, target, success criteria (PROGRAM.md)
-- where the data lives + how evaluation should work (SETUP.md)
+- how to fill in `PROGRAM.md` + `SETUP.md` — **open them in `$EDITOR` now** (recommended for short content) or **skip and finish manually** (writes default templates, stops before tool generation so you can edit at your own pace and run `dojo task setup` when ready)
 
-It then runs the AI tool generator, verifies `load_data` + `evaluate`
-against the frozen regression contract, and freezes the task. If the
-verifier hits a missing import, onboard offers to install it into the
-workspace venv and retries automatically.
+When you pick "open in `$EDITOR`", onboard then runs the AI tool generator,
+verifies `load_data` + `evaluate` against the frozen regression contract,
+and freezes the task. If the verifier hits a missing import, onboard
+offers to install it into the workspace venv and retries automatically.
+
+When you pick "skip", onboard stops cleanly after writing the templates.
+Edit `PROGRAM.md` + `SETUP.md`, then run `dojo task setup` to generate +
+verify + freeze when you're ready.
+
+### Existing codebase? Use the `dojo-onboard` Claude Code skill
+
+For real projects — where you already have data loaders, a metric, and
+paragraphs of context — the Typer prompts are the wrong UI. We ship a
+**Claude Code skill** that runs the whole flow as a conversation: it
+reads your code, asks a few targeted questions, drafts `PROGRAM.md` +
+`SETUP.md` from your answers, drives `dojo task setup`, and iterates on
+verifier failures until the AI-written `load_data.py` + `evaluate.py`
+connectors verify cleanly against your data.
+
+```bash
+uv tool install dojoml      # if you haven't already
+dojo skill install dojo-onboard
+# then in Claude Code, from your project directory:
+/dojo-onboard
+```
+
+`dojo skill install` fetches the skill from this repo into
+`~/.claude/skills/dojo-onboard/`. Pass `--scope project` to install into
+`./.claude/skills/` for the current project only, or `--ref main` to
+pull the latest from `main` instead of the installed version's tag.
+The skill requires [Claude Code](https://claude.com/claude-code)
+installed locally — it's not invoked by `dojo` directly.
 
 ### Don't have a project yet? Try a preset
 
