@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dojoml"
-version = "0.0.19"
+version = "0.0.20"
 description = "AI-powered autonomous ML research framework — agent runs experiments against frozen evaluation contracts on your existing pipelines."
 readme = "README.md"
 license = { file = "LICENSE" }

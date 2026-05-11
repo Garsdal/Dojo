@@ -13,24 +13,35 @@ for the release workflow.
 
 ## [Unreleased]
 
+## [v0.0.20] - 2026-05-11
+
+### Agent prompts
+
+- **Termination is the framework's call, not the agent's.** [src/dojo/agents/prompts.py](src/dojo/agents/prompts.py) gains a short "Termination" section telling the agent that the runtime owns when the run ends (cumulative turn / dollar / wall-clock budget, or `dojo stop`) and that it should never end the loop with a "done" message. Complements the new continuation loop — without this, even with the loop running the agent would still try to wrap up after a handful of experiments. (#6)
+
+### Added
+
+- **Continuation loop in `AgentOrchestrator`** ([src/dojo/agents/orchestrator.py](src/dojo/agents/orchestrator.py)). When the SDK stream ends naturally and budget remains, the orchestrator reconfigures the backend with the latest accumulated knowledge + remaining budget and runs another iteration. The loop terminates on cumulative `max_turns`, `max_budget_usd`, the new `max_wall_clock_s`, an `is_error` result, a backend error event, or `dojo stop`. `AgentRun` now tracks `cumulative_turns`, `cumulative_cost_usd`, and `iteration_count`. A new `continuation_started` event is emitted between iterations so the CLI / SSE stream can show "↻ continuing — iteration N (remaining: X turns, $Y)". New settings: `agent.max_wall_clock_s` (None by default) and `agent.auto_continue` (True; kill switch for legacy single-iteration behaviour). New CLI flags `--max-wall-clock-s` and `--no-continue`. (#6)
+
+### Changed
+
+- **End-of-run knowledge flush runs once per run, not per iteration.** [src/dojo/agents/orchestrator.py](src/dojo/agents/orchestrator.py) keeps `flush_run_knowledge` in the outer `finally` so a multi-iteration overnight run produces a single 3-7-atom summary over the full transcript, instead of N × 7 atoms + N × link writes. Atom and linker cost stays flat regardless of iteration count. (#6)
+- **Summarizer transcript truncation switched from head-take to tail-take.** [src/dojo/agents/summarizer.py](src/dojo/agents/summarizer.py) now keeps the last 8000 chars of the transcript instead of the first 8000. On long overnight runs the durable findings live at the end; a head-take threw them away and only ever surfaced early-baseline scaffolding to the extractor LLM. (#6)
+
 ## [v0.0.19] - 2026-05-11
 
 ### Agent prompts
 
 - **New `dojo-onboard` Claude Code skill** ([.claude/skills/dojo-onboard/SKILL.md](.claude/skills/dojo-onboard/SKILL.md)) — conversational onboarding for users dropping Dojo into an existing Python codebase. The skill reads the user's code, asks targeted questions about data + evaluation, scaffolds `.dojo/` via `dojo init --non-interactive`, writes `PROGRAM.md` + `SETUP.md` from the dialogue, and drives `dojo task setup` while iterating on verifier failures until the AI-generated `load_data.py` + `evaluate.py` connectors verify cleanly. Install with `dojo skill install dojo-onboard`. (#20)
-- **Termination is the framework's call, not the agent's.** [src/dojo/agents/prompts.py](src/dojo/agents/prompts.py) gains a short "Termination" section telling the agent that the runtime owns when the run ends (cumulative turn / dollar / wall-clock budget, or `dojo stop`) and that it should never end the loop with a "done" message. Complements the new continuation loop — without this, even with the loop running the agent would still try to wrap up after a handful of experiments. (#6)
 
 ### Added
 
 - **`dojo skill` subcommand** ([src/dojo/cli/skill.py](src/dojo/cli/skill.py)) — `dojo skill list` enumerates available skills; `dojo skill install <name> [--scope user|project] [--ref <git-ref>] [--force]` fetches a skill from the Dojo GitHub repo into `~/.claude/skills/` (default) or `./.claude/skills/`. Default ref is the installed Dojo version's tag with a fallback to `main` for the pre-tag window. Skills are intentionally not bundled in the wheel — the repo is the single source of truth. (#20)
 - **README — "Existing codebase? Use the `dojo-onboard` Claude Code skill"** section ([README.md](README.md)) positions the skill as the recommended path for real projects, alongside the existing `dojo onboard --preset` (tire-kicking) and `dojo init --non-interactive` (scripted/CI) paths.
-- **Continuation loop in `AgentOrchestrator`** ([src/dojo/agents/orchestrator.py](src/dojo/agents/orchestrator.py)). When the SDK stream ends naturally and budget remains, the orchestrator reconfigures the backend with the latest accumulated knowledge + remaining budget and runs another iteration. The loop terminates on cumulative `max_turns`, `max_budget_usd`, the new `max_wall_clock_s`, an `is_error` result, a backend error event, or `dojo stop`. `AgentRun` now tracks `cumulative_turns`, `cumulative_cost_usd`, and `iteration_count`. A new `continuation_started` event is emitted between iterations so the CLI / SSE stream can show "↻ continuing — iteration N (remaining: X turns, $Y)". New settings: `agent.max_wall_clock_s` (None by default) and `agent.auto_continue` (True; kill switch for legacy single-iteration behaviour). New CLI flags `--max-wall-clock-s` and `--no-continue`. (#6)
 
 ### Changed
 
 - **`dojo onboard` PROGRAM.md / SETUP.md prompts** ([src/dojo/cli/onboard.py](src/dojo/cli/onboard.py)) — the four line-by-line `Prompt.ask` calls (target / success / dataset / evaluate) are replaced with a 2-way selector: **open in `$EDITOR` now** (writes the default template into a temp buffer, opens it, captures the edited content) or **skip — finish manually** (writes the default templates to disk and stops *before* tool generation, so the user can edit at their own pace and run `dojo task setup` later without first having to `dojo task unfreeze`). The previous flow pushed users to skip through with placeholder values and then dance through `unfreeze` → edit → `setup`; this version cuts that loop. (#20)
-- **End-of-run knowledge flush runs once per run, not per iteration.** [src/dojo/agents/orchestrator.py](src/dojo/agents/orchestrator.py) keeps `flush_run_knowledge` in the outer `finally` so a multi-iteration overnight run produces a single 3-7-atom summary over the full transcript, instead of N × 7 atoms + N × link writes. Atom and linker cost stays flat regardless of iteration count. (#6)
-- **Summarizer transcript truncation switched from head-take to tail-take.** [src/dojo/agents/summarizer.py](src/dojo/agents/summarizer.py) now keeps the last 8000 chars of the transcript instead of the first 8000. On long overnight runs the durable findings live at the end; a head-take threw them away and only ever surfaced early-baseline scaffolding to the extractor LLM. (#6)
 
 ## [v0.0.18] - 2026-05-09
 
