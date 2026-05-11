@@ -151,6 +151,32 @@ async def test_flush_emits_completed_with_error_on_extract_failure():
     assert "model unavailable" in completed.data["error"]
 
 
+async def test_long_transcript_keeps_tail():
+    """Long multi-iteration transcripts must surface the tail (where findings live)
+    to the LLM, not the head (which is just early baseline scaffolding).
+
+    Regression test for issue #6: a head-take truncation throws away durable
+    overnight findings.
+    """
+    captured: dict[str, str] = {}
+
+    class _Capture(_FakeBackend):
+        async def complete(self, prompt: str) -> str:
+            captured["prompt"] = prompt
+            return "[]"
+
+    backend = _Capture("[]")
+    head_marker = "EARLY_BASELINE_SCAFFOLDING " * 500  # ~ 13000 chars
+    tail_marker = "DURABLE_FINDING_AT_THE_END"
+    transcript = head_marker + tail_marker
+    await extract_knowledge_atoms(backend, transcript=transcript, domain_id="d")
+
+    assert tail_marker in captured["prompt"]
+    # Head content is throwaway scaffolding — fine for it to be truncated.
+    # The transcript truncation cap (8000) means most of the head is gone.
+    assert captured["prompt"].count("EARLY_BASELINE_SCAFFOLDING") < 500
+
+
 async def test_flush_emits_no_events_when_transcript_empty():
     """An empty transcript skips the flush entirely — no user-visible events."""
     backend = _FakeBackend("[]")

@@ -42,6 +42,7 @@ class AgentRunConfig:
     system_prompt: str = ""
     max_turns: int = 50
     max_budget_usd: float | None = None
+    max_wall_clock_s: float | None = None  # Wall-clock cap for the whole run (loop-wide)
     permission_mode: str = "acceptEdits"
     cwd: str | None = None
     python_path: str | None = None  # Path to Python executable for code execution
@@ -89,3 +90,9 @@ class AgentRun:
     result: AgentRunResult | None = None
     error: str | None = None
     tool_hints: list[ToolHint] = field(default_factory=list)
+    # Cumulative budgets across continuation iterations. The orchestrator
+    # increments these from each iteration's `result` event so the loop can
+    # enforce a single per-run cap rather than a per-iteration one.
+    cumulative_turns: int = 0
+    cumulative_cost_usd: float = 0.0
+    iteration_count: int = 0

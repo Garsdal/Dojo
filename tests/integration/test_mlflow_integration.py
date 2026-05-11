@@ -85,7 +85,7 @@ async def _make_frozen_domain(lab, tmp_path) -> Domain:
 
 async def _run_stub(lab, domain: Domain, prompt: str) -> None:
     backend = StubAgentBackend()
-    orchestrator = AgentOrchestrator(lab, backend)
+    orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
     run = await orchestrator.start(prompt, domain_id=domain.id)
     await orchestrator.execute(run)
 

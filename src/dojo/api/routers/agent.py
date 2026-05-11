@@ -41,6 +41,8 @@ class StartRunRequest(BaseModel):
     tool_hints: list[ToolHintRequest] = []
     max_turns: int = 50
     max_budget_usd: float | None = None
+    max_wall_clock_s: float | None = None
+    auto_continue: bool = True
 
 
 class AgentEventResponse(BaseModel):
@@ -80,6 +82,10 @@ async def start_run(body: StartRunRequest, request: Request) -> AgentRunResponse
         backend,
         max_turns=body.max_turns,
         max_budget_usd=body.max_budget_usd,
+        max_wall_clock_s=body.max_wall_clock_s
+        if body.max_wall_clock_s is not None
+        else settings.agent.max_wall_clock_s,
+        auto_continue=body.auto_continue and settings.agent.auto_continue,
         permission_mode=settings.agent.permission_mode,
         cwd=settings.agent.cwd,
     )

@@ -1,12 +1,13 @@
 """Unit tests for AgentOrchestrator — uses StubAgentBackend, no SDK needed."""
 
+import asyncio
 import json
 
 import pytest
 
 from dojo.agents.backends.stub import StubAgentBackend
 from dojo.agents.orchestrator import AgentOrchestrator
-from dojo.agents.types import AgentEvent, RunStatus, ToolHint
+from dojo.agents.types import AgentEvent, AgentRunConfig, RunStatus, ToolHint
 from dojo.core.domain import Domain, DomainTool, ToolType, VerificationResult
 from dojo.core.task import TaskType
 from dojo.runtime.task_service import TaskNotReadyError, TaskService
@@ -40,7 +41,7 @@ class TestAgentOrchestrator:
 
     async def test_start_creates_running_run(self, lab):
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start(
             "test prompt", domain_id="test-domain", require_ready_task=False
@@ -53,7 +54,7 @@ class TestAgentOrchestrator:
 
     async def test_start_with_custom_domain_id(self, lab):
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("test", domain_id="custom-id", require_ready_task=False)
 
@@ -61,7 +62,7 @@ class TestAgentOrchestrator:
 
     async def test_start_with_tool_hints(self, lab):
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         hints = [ToolHint(name="fetch_data", description="Load dataset", source="http://test")]
         run = await orchestrator.start(
@@ -75,7 +76,7 @@ class TestAgentOrchestrator:
 
     async def test_execute_completes_successfully(self, lab):
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start(
             "test prompt", domain_id="test-domain", require_ready_task=False
@@ -101,7 +102,7 @@ class TestAgentOrchestrator:
             ),
         ]
         backend = StubAgentBackend(events=events)
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("test", domain_id="test-domain", require_ready_task=False)
         await orchestrator.execute(run)
@@ -117,7 +118,7 @@ class TestAgentOrchestrator:
             AgentEvent(event_type="error", data={"error": "Something broke"}),
         ]
         backend = StubAgentBackend(events=events)
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("test", domain_id="test-domain", require_ready_task=False)
         await orchestrator.execute(run)
@@ -133,7 +134,7 @@ class TestAgentOrchestrator:
             ),
         ]
         backend = StubAgentBackend(events=events)
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("test", domain_id="test-domain", require_ready_task=False)
         await orchestrator.execute(run)
@@ -142,7 +143,7 @@ class TestAgentOrchestrator:
 
     async def test_stop_sets_stopped_status(self, lab):
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("test", domain_id="test-domain", require_ready_task=False)
         await orchestrator.stop()
@@ -158,7 +159,7 @@ class TestAgentOrchestrator:
             AgentEvent(event_type="error", data={"error": "Command failed with exit code -2"}),
         ]
         backend = StubAgentBackend(events=events)
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("test", domain_id="test-domain", require_ready_task=False)
         orchestrator.mark_stop_requested()
@@ -198,7 +199,7 @@ class TestAgentOrchestrator:
                 return "slow"
 
         backend = _SlowBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
         run = await orchestrator.start("test", domain_id="test-domain", require_ready_task=False)
 
         async def _signal_after_a_moment():
@@ -252,7 +253,7 @@ class TestAgentOrchestrator:
 
     async def test_config_includes_domain_id(self, lab):
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("test", domain_id="my-domain", require_ready_task=False)
 
@@ -291,7 +292,7 @@ class TestAgentOrchestrator:
         await svc.freeze(domain.id)
 
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("pipeline test", domain_id=domain.id)
         await orchestrator.execute(run)
@@ -303,7 +304,7 @@ class TestAgentOrchestrator:
     async def test_full_pipeline_event_types(self, lab):
         """The default stub flow should produce the expected event types."""
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start(
             "event types test", domain_id="test-domain", require_ready_task=False
@@ -326,7 +327,7 @@ class TestOrchestratorTaskGate:
 
     async def test_start_rejects_unknown_domain(self, lab):
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
         with pytest.raises(TaskNotReadyError, match="not found"):
             await orchestrator.start("p", domain_id="ghost")
 
@@ -334,7 +335,7 @@ class TestOrchestratorTaskGate:
         domain = Domain(name="no-task")
         await lab.domain_store.save(domain)
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
         with pytest.raises(TaskNotReadyError, match="no task"):
             await orchestrator.start("p", domain_id=domain.id)
 
@@ -343,7 +344,7 @@ class TestOrchestratorTaskGate:
         await lab.domain_store.save(domain)
         await TaskService(lab).create(domain.id)
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
         with pytest.raises(TaskNotReadyError, match="not frozen"):
             await orchestrator.start("p", domain_id=domain.id)
 
@@ -355,14 +356,14 @@ class TestOrchestratorTaskGate:
         # path) — assert_ready should still flag the missing verification.
         await TaskService(lab).freeze(domain.id, skip_verification=True)
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
         with pytest.raises(TaskNotReadyError, match="unverified"):
             await orchestrator.start("p", domain_id=domain.id)
 
     async def test_start_passes_when_task_is_ready(self, lab):
         domain = await _make_ready_domain(lab)
         backend = StubAgentBackend()
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
         run = await orchestrator.start("p", domain_id=domain.id)
         assert run.status == RunStatus.RUNNING
 
@@ -422,7 +423,7 @@ class TestEndOfRunKnowledgeFlush:
             {"claim": "lightgbm not installed", "confidence": 0.95},
         ]
         backend = _CompletingStubBackend(events=self._events_with_text(), atoms=atoms)
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("p", domain_id="d1", require_ready_task=False)
         await orchestrator.execute(run)
@@ -438,7 +439,7 @@ class TestEndOfRunKnowledgeFlush:
             atoms=atoms,
             wrap_in_fences=True,
         )
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("p", domain_id="d2", require_ready_task=False)
         await orchestrator.execute(run)
@@ -450,7 +451,7 @@ class TestEndOfRunKnowledgeFlush:
         """Plain StubAgentBackend's complete() raises NotImplementedError;
         the flush should swallow it and write nothing."""
         backend = StubAgentBackend(events=self._events_with_text())
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("p", domain_id="d3", require_ready_task=False)
         await orchestrator.execute(run)
@@ -465,7 +466,7 @@ class TestEndOfRunKnowledgeFlush:
         ]
         atoms = [{"claim": "xgboost OOMs at 10M rows on this box", "confidence": 0.9}]
         backend = _CompletingStubBackend(events=events, atoms=atoms)
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("p", domain_id="d4", require_ready_task=False)
         await orchestrator.execute(run)
@@ -478,7 +479,7 @@ class TestEndOfRunKnowledgeFlush:
         """Calling flush_knowledge again after execute() must not double-write."""
         atoms = [{"claim": "only-once", "confidence": 0.7}]
         backend = _CompletingStubBackend(events=self._events_with_text(), atoms=atoms)
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("p", domain_id="d5", require_ready_task=False)
         await orchestrator.execute(run)
@@ -501,7 +502,7 @@ class TestEndOfRunKnowledgeFlush:
             ),
         ]
         backend = _CompletingStubBackend(events=result_only, atoms=[{"claim": "x"}])
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("p", domain_id="d6", require_ready_task=False)
         await orchestrator.execute(run)
@@ -516,7 +517,7 @@ class TestEndOfRunKnowledgeFlush:
             events=self._events_with_text(),
             raise_on_complete=RuntimeError("network down"),
         )
-        orchestrator = AgentOrchestrator(lab, backend)
+        orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
         run = await orchestrator.start("p", domain_id="d7", require_ready_task=False)
         await orchestrator.execute(run)
@@ -528,10 +529,208 @@ class TestEndOfRunKnowledgeFlush:
 async def test_execute_emits_run_finalized_as_last_event(lab):
     """run.events ends with a run_finalized sentinel after flush completes."""
     backend = StubAgentBackend()
-    orchestrator = AgentOrchestrator(lab, backend)
+    orchestrator = AgentOrchestrator(lab, backend, auto_continue=False)
 
     run = await orchestrator.start("test", domain_id="d", require_ready_task=False)
     await orchestrator.execute(run)
 
     assert run.events, "expected at least one event"
     assert run.events[-1].event_type == "run_finalized"
+
+
+class _ScriptedIterationsBackend(StubAgentBackend):
+    """Stub whose execute() yields a different scripted batch per call.
+
+    Safety: once the scripted list is exhausted the backend yields a halt
+    (is_error result) so a test that miscomputes its termination condition
+    fails fast instead of looping forever.
+    """
+
+    def __init__(self, iterations: list[list[AgentEvent]]) -> None:
+        super().__init__()
+        self._iterations = iterations
+        self.execute_calls = 0
+        self.configure_calls = 0
+        self.last_config: AgentRunConfig | None = None
+
+    async def configure(self, tool_defs, config):  # type: ignore[override]
+        self.configure_calls += 1
+        self.last_config = config
+        await super().configure(tool_defs, config)
+
+    async def execute(self, prompt: str):  # type: ignore[override]
+        idx = self.execute_calls
+        self.execute_calls += 1
+        if idx >= len(self._iterations):
+            yield AgentEvent(
+                event_type="result",
+                data={"is_error": True, "turns": 0, "cost_usd": 0.0},
+            )
+            return
+        for event in self._iterations[idx]:
+            yield event
+
+
+def _clean_result(turns: int = 5, cost: float = 0.1) -> AgentEvent:
+    return AgentEvent(
+        event_type="result",
+        data={
+            "session_id": "s",
+            "turns": turns,
+            "cost_usd": cost,
+            "duration_ms": 100,
+            "is_error": False,
+        },
+    )
+
+
+def _text(t: str = "did things") -> AgentEvent:
+    return AgentEvent(event_type="text", data={"text": t})
+
+
+def _halt() -> AgentEvent:
+    """Result event that halts the continuation loop (is_error=True)."""
+    return AgentEvent(
+        event_type="result",
+        data={"is_error": True, "turns": 1, "cost_usd": 0.0},
+    )
+
+
+class TestContinuationLoop:
+    """The orchestrator drives `backend.execute()` repeatedly until a real
+    budget (turns / dollars / wall-clock) is hit or stop is requested. See
+    issue #6: prior behaviour terminated as soon as the agent emitted a
+    "done" message.
+
+    Stop-signal mid-loop behaviour is covered by
+    ``test_external_stop_signal_triggers_graceful_stop`` above — the
+    continuation loop respects the same ``_stop_requested`` flag, so
+    duplicating the 1s-poll wait here would only add latency to the suite.
+    """
+
+    async def test_continues_when_budget_remains_and_records_event(self, lab):
+        """Clean iteration → continues → emits continuation_started with remaining caps.
+
+        Bundles three checks (continues, event emitted, remaining budgets correct)
+        in one scripted run so the loop only fires twice — keeps the test fast.
+        """
+        backend = _ScriptedIterationsBackend(
+            iterations=[
+                [_text("iter 1"), _clean_result(turns=5, cost=0.1)],
+                [_halt()],  # halt iter 2 deterministically
+            ],
+        )
+        orchestrator = AgentOrchestrator(lab, backend, max_turns=100, max_budget_usd=1.0)
+
+        run = await orchestrator.start("p", domain_id="d", require_ready_task=False)
+        await orchestrator.execute(run)
+
+        assert backend.execute_calls == 2
+        assert run.iteration_count == 2
+        assert run.cumulative_turns == 6  # 5 + 1
+        cont_events = [e for e in run.events if e.event_type == "continuation_started"]
+        assert len(cont_events) == 1
+        assert cont_events[0].data["iteration"] == 2
+        assert cont_events[0].data["remaining_turns"] == 95
+        assert cont_events[0].data["remaining_budget_usd"] == pytest.approx(0.9)
+        # The reconfigure for iter 2 saw the remaining (not full) caps.
+        assert backend.last_config is not None
+        assert backend.last_config.max_turns == 95
+        assert backend.last_config.max_budget_usd == pytest.approx(0.9)
+
+    @pytest.mark.parametrize(
+        "axis,kwargs,iter_event",
+        [
+            ("turns", {"max_turns": 10}, _clean_result(turns=10, cost=0.1)),
+            (
+                "budget",
+                {"max_turns": 1000, "max_budget_usd": 0.5},
+                _clean_result(turns=5, cost=0.5),
+            ),
+            (
+                "wall_clock",
+                {"max_turns": 1000, "max_wall_clock_s": 0.0},
+                _clean_result(turns=5, cost=0.1),
+            ),
+        ],
+    )
+    async def test_terminates_on_each_budget_axis(self, lab, axis, kwargs, iter_event):
+        """Each cumulative cap (turns / dollars / wall-clock) halts the loop alone."""
+        backend = _ScriptedIterationsBackend(
+            iterations=[[_text(f"iter for {axis}"), iter_event]],
+        )
+        orchestrator = AgentOrchestrator(lab, backend, **kwargs)
+
+        run = await orchestrator.start("p", domain_id="d", require_ready_task=False)
+        await orchestrator.execute(run)
+
+        assert backend.execute_calls == 1
+        assert run.status == RunStatus.COMPLETED
+
+    async def test_error_event_halts_loop(self, lab):
+        """An error event in iter N halts the loop — no iter N+1 fires."""
+        backend = _ScriptedIterationsBackend(
+            iterations=[
+                [AgentEvent(event_type="error", data={"error": "boom"})],
+                [_clean_result(turns=5, cost=0.05)],  # would loop forever if reached
+            ],
+        )
+        orchestrator = AgentOrchestrator(lab, backend, max_turns=1000)
+
+        run = await orchestrator.start("p", domain_id="d", require_ready_task=False)
+        await orchestrator.execute(run)
+
+        assert backend.execute_calls == 1
+        assert run.status == RunStatus.FAILED
+        assert run.error == "boom"
+
+    async def test_knowledge_flushed_exactly_once_across_iterations(self, lab):
+        """End-of-run flush runs **once** across N iterations, not per iteration.
+
+        The scalability fix from issue #6: each flush extracts up to 7 atoms
+        and writes N link rows, so per-iteration flushing would multiply
+        knowledge growth by iteration count.
+        """
+
+        class _MultiIterCompletingBackend(_CompletingStubBackend):
+            def __init__(self, iterations):
+                super().__init__(atoms=[{"claim": "session lesson", "confidence": 0.8}])
+                self._iterations = iterations
+                self.execute_calls = 0
+
+            async def execute(self, prompt: str):  # type: ignore[override]
+                idx = min(self.execute_calls, len(self._iterations) - 1)
+                self.execute_calls += 1
+                for event in self._iterations[idx]:
+                    await asyncio.sleep(0)
+                    yield event
+
+        backend = _MultiIterCompletingBackend(
+            iterations=[
+                [_text("iter 1"), _clean_result(turns=5, cost=0.1)],
+                [_text("iter 2"), _clean_result(turns=5, cost=0.1)],
+                [_halt()],
+            ],
+        )
+        orchestrator = AgentOrchestrator(lab, backend, max_turns=1000)
+
+        run = await orchestrator.start("p", domain_id="d-flush", require_ready_task=False)
+        await orchestrator.execute(run)
+
+        assert backend.execute_calls == 3
+        assert backend.complete_calls == 1  # one flush at end-of-run
+        stored = await lab.knowledge_linker.get_domain_knowledge("d-flush")
+        assert len(stored) == 1
+
+    async def test_auto_continue_false_runs_once(self, lab):
+        """Kill switch: legacy single-iteration behaviour even when budget remains."""
+        backend = _ScriptedIterationsBackend(
+            iterations=[[_clean_result(turns=5, cost=0.1)], [_clean_result(turns=5, cost=0.1)]],
+        )
+        orchestrator = AgentOrchestrator(lab, backend, max_turns=1000, auto_continue=False)
+
+        run = await orchestrator.start("p", domain_id="d", require_ready_task=False)
+        await orchestrator.execute(run)
+
+        assert backend.execute_calls == 1
+        assert run.status == RunStatus.COMPLETED
