@@ -18,6 +18,7 @@ import asyncio
 import shutil
 import subprocess
 import sys
+import typing
 from pathlib import Path
 
 import typer
@@ -35,8 +36,6 @@ from dojo.core.task import TaskType
 from dojo.runtime.lab import LabEnvironment
 from dojo.runtime.onboard_helpers import (
     PRESETS,
-    fill_program_template,
-    fill_setup_template,
     is_path_inside_dojo_repo,
     parse_module_not_found,
 )
@@ -208,7 +207,7 @@ async def _onboard_async(
     description = Prompt.ask("[bold]Description (optional)[/bold]", default="")
 
     # ---- 6. Preset vs. custom branch ---------------------------------------
-    program_md, setup_md, preset = _resolve_program_and_setup(
+    program_md, setup_md, preset, finish_mode = _resolve_program_and_setup(
         preset_key=preset_key, domain_name=domain_name, description=description
     )
 
@@ -251,6 +250,21 @@ async def _onboard_async(
     await lab.domain_store.save(domain)
     console.print(f"[green]✓[/green] PROGRAM.md scaffolded at {program_path}")
     console.print(f"[green]✓[/green] SETUP.md scaffolded at {setup_path}")
+
+    # ---- 7b. Skip-finish bail-out ------------------------------------------
+    # User chose to write defaults and finish manually. Stop before tool
+    # generation / freeze so they can edit at their own pace — running
+    # `dojo task setup` later picks up where this leaves off, no unfreeze
+    # needed because the task was never frozen with placeholder content.
+    if finish_mode == "stop":
+        set_current_domain_id(Path(settings.storage.base_dir), domain.id)
+        console.print()
+        console.print("[bold green]onboarding paused[/bold green] — next steps:")
+        console.print(f"  1. edit [cyan]{program_path}[/cyan] (research goal)")
+        console.print(f"  2. edit [cyan]{setup_path}[/cyan] (data + evaluation)")
+        console.print("  3. run [bold]dojo task setup[/bold] — generates + verifies + freezes")
+        console.print("  4. run [bold]dojo run[/bold] — start the agent")
+        return
 
     # ---- 8. Preset-only: pre-install preset deps ----------------------------
     if preset is not None and domain.workspace and domain.workspace.python_path:
@@ -461,19 +475,30 @@ def _patch_config_full(
     config_path.write_text(yaml.safe_dump(data, sort_keys=True))
 
 
+FinishMode = typing.Literal["continue", "stop"]
+
+
 def _resolve_program_and_setup(
     *, preset_key: str | None, domain_name: str, description: str
-) -> tuple[str, str, object | None]:
-    """Return (program_md, setup_md, preset_or_None).
+) -> tuple[str, str, object | None, FinishMode]:
+    """Return (program_md, setup_md, preset_or_None, finish_mode).
 
-    If `preset_key` is given, return that preset's content directly.
-    Otherwise: offer the user a side-prompt to opt in to a preset, and
-    fall back to filling the default templates with line-by-line input.
+    `finish_mode` controls whether `_onboard_async` proceeds straight to
+    tool generation + freeze (`"continue"`) or stops after writing the
+    files (`"stop"`), leaving the user to edit and run `dojo task setup`
+    themselves. Preset content always returns `"continue"` — it's real
+    content, not placeholder.
+
+    Custom path: ask whether to fill in `PROGRAM.md` + `SETUP.md` now in
+    `$EDITOR` or skip and finish manually later. Replaces the previous
+    line-by-line `Prompt.ask` flow, which made pasting paragraphs miserable
+    and pushed users to skip through with placeholder values that then
+    needed an explicit `dojo task unfreeze` to fix.
     """
     if preset_key is not None:
         preset = PRESETS[preset_key]
         console.print(f"[green]✓[/green] using preset: {preset.label}")
-        return preset.program_md, preset.setup_md, preset
+        return preset.program_md, preset.setup_md, preset, "continue"
 
     # Side-prompt — default custom.
     if PRESETS:
@@ -495,30 +520,62 @@ def _resolve_program_and_setup(
         if choice != "custom":
             preset = PRESETS[choice]
             console.print(f"[green]✓[/green] using preset: {preset.label}")
-            return preset.program_md, preset.setup_md, preset
+            return preset.program_md, preset.setup_md, preset, "continue"
 
-    # Custom path — fill in the default templates' TODOs.
-    console.print()
-    console.print("[dim]Tell me about your research goal (PROGRAM.md):[/dim]")
-    target = Prompt.ask("  Target — what is the model predicting?", default="")
-    success = Prompt.ask("  Success — how will you know it worked?", default="")
-
-    console.print("[dim]Tell me about your data + evaluation (SETUP.md):[/dim]")
-    dataset = Prompt.ask("  Dataset — where does the data live?", default="")
-    evaluate = Prompt.ask("  Evaluate — how should the metrics be computed?", default="")
-
+    # Custom path — pick how to fill in the templates.
     fake_domain = _FakeDomain(name=domain_name, description=description)
-    program_md = fill_program_template(
-        default_program_template(fake_domain),  # type: ignore[arg-type]
-        target=target,
-        success=success,
+    default_program = default_program_template(fake_domain)  # type: ignore[arg-type]
+    default_setup = default_setup_template(fake_domain)  # type: ignore[arg-type]
+
+    console.print()
+    console.print(
+        "[dim]PROGRAM.md describes your research goal; SETUP.md describes the data + "
+        "evaluation that the framework will freeze.[/dim]"
     )
-    setup_md = fill_setup_template(
-        default_setup_template(fake_domain),  # type: ignore[arg-type]
-        dataset=dataset,
-        evaluate=evaluate,
+    fill_choice = _select(
+        "How would you like to fill them in?",
+        choices=[
+            ("Open in $EDITOR now (recommended)", "editor"),
+            ("Skip — write defaults, finish manually", "skip"),
+        ],
+        default="editor",
     )
-    return program_md, setup_md, None
+
+    if fill_choice == "skip":
+        console.print(
+            "[dim]Writing default templates — edit them, then run [bold]dojo task setup[/bold] "
+            "to generate + verify + freeze.[/dim]"
+        )
+        return default_program, default_setup, None, "stop"
+
+    program_md = _edit_or_fallback(default_program, label="PROGRAM.md")
+    setup_md = _edit_or_fallback(default_setup, label="SETUP.md")
+    return program_md, setup_md, None, "continue"
+
+
+def _edit_or_fallback(default_text: str, *, label: str) -> str:
+    """Open `default_text` in `$EDITOR` and return the edited content.
+
+    Falls back to the default text on any editor failure (no editor on
+    PATH, user aborted without saving) and warns the user — better than
+    crashing the whole onboard flow halfway through.
+    """
+    console.print(f"[dim]opening[/dim] [cyan]{label}[/cyan] [dim]in $EDITOR...[/dim]")
+    try:
+        edited = typer.edit(text=default_text, extension=".md")
+    except (typer.Abort, OSError, RuntimeError) as e:
+        console.print(
+            f"[yellow]warning:[/yellow] could not open editor for {label} ({e}); "
+            "using the default template — edit the file manually later."
+        )
+        return default_text
+    if edited is None:
+        console.print(
+            f"[yellow]warning:[/yellow] no changes saved to {label}; "
+            "using the default template — edit the file manually later."
+        )
+        return default_text
+    return edited
 
 
 class _FakeDomain:

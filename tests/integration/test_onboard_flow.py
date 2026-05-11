@@ -176,8 +176,10 @@ def test_onboard_unknown_preset_errors_fast(onboard_dir: Path):
     assert "unknown preset" in result.output
 
 
-def test_onboard_custom_path_writes_user_text(onboard_dir: Path):
-    """The non-preset path fills the default templates with line-by-line input."""
+def test_onboard_custom_path_skip_stops_before_tool_gen(onboard_dir: Path):
+    """Custom + 'skip' writes default templates and stops cleanly before tool
+    generation — no freeze, no verifier call. User can edit PROGRAM.md + SETUP.md
+    and run `dojo task setup` later without needing `dojo task unfreeze` first."""
     runner = CliRunner()
 
     inputs = "\n".join(
@@ -187,11 +189,63 @@ def test_onboard_custom_path_writes_user_text(onboard_dir: Path):
             "keyword",  # linker
             "my-research",  # domain name
             "",  # description
-            "custom",  # decline preset side-prompt (use custom flow)
-            "the median house value",  # target
-            "RMSE under 0.5",  # success
-            "use sklearn fetch_california_housing",  # dataset
-            "rmse + r2 + mae",  # evaluate
+            "custom",  # decline preset side-prompt
+            "skip",  # fill-mode: write defaults, finish manually
+            "",  # buffer
+        ]
+    )
+
+    result = runner.invoke(
+        app,
+        ["onboard", "--workspace", str(onboard_dir)],
+        input=inputs,
+    )
+
+    assert result.exit_code == 0, result.output
+    # Skip path explicitly does NOT freeze.
+    assert "onboarding paused" in result.output
+    assert "task frozen" not in result.output
+
+    domain_files = list((onboard_dir / ".dojo" / "domains").glob("*.json"))
+    assert len(domain_files) == 1
+    data = json.loads(domain_files[0].read_text())
+    assert data["task"]["frozen"] is False
+    # Tools should not have been generated (skip path).
+    assert data["task"]["tools"] == []
+
+    # Default templates exist on disk for the user to edit.
+    domain_dir = onboard_dir / ".dojo" / "domains" / domain_files[0].stem
+    assert (domain_dir / "PROGRAM.md").exists()
+    assert (domain_dir / "SETUP.md").exists()
+
+
+def test_onboard_custom_path_editor_writes_edited_content(
+    onboard_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Custom + 'editor' opens $EDITOR (monkeypatched), captures the edited
+    content into PROGRAM.md and SETUP.md, and proceeds through verify + freeze."""
+    import dojo.cli.onboard as onboard_mod
+
+    edited_payloads = iter(
+        [
+            "# PROGRAM.md\nedited program content from $EDITOR\n",
+            "# SETUP.md\nedited setup content from $EDITOR\n",
+        ]
+    )
+    monkeypatch.setattr(
+        onboard_mod.typer, "edit", lambda text=None, extension=None: next(edited_payloads)
+    )
+
+    runner = CliRunner()
+    inputs = "\n".join(
+        [
+            "claude",  # agent backend
+            "file",  # tracking
+            "keyword",  # linker
+            "my-research",  # domain name
+            "",  # description
+            "custom",  # decline preset side-prompt
+            "editor",  # fill-mode: open in $EDITOR
             "",  # buffer
         ]
     )
@@ -208,10 +262,40 @@ def test_onboard_custom_path_writes_user_text(onboard_dir: Path):
     domain_files = list((onboard_dir / ".dojo" / "domains").glob("*.json"))
     assert len(domain_files) == 1
     domain_dir = onboard_dir / ".dojo" / "domains" / domain_files[0].stem
-    program = (domain_dir / "PROGRAM.md").read_text()
-    setup = (domain_dir / "SETUP.md").read_text()
-    # User answers landed in the templates.
-    assert "the median house value" in program
-    assert "RMSE under 0.5" in program
-    assert "use sklearn fetch_california_housing" in setup
-    assert "rmse + r2 + mae" in setup
+    assert "edited program content from $EDITOR" in (domain_dir / "PROGRAM.md").read_text()
+    assert "edited setup content from $EDITOR" in (domain_dir / "SETUP.md").read_text()
+
+
+def test_onboard_custom_path_editor_falls_back_when_edit_returns_none(
+    onboard_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """If `typer.edit` returns None (user closed without saving), fall back to
+    the default template and warn — don't crash the flow."""
+    import dojo.cli.onboard as onboard_mod
+
+    monkeypatch.setattr(onboard_mod.typer, "edit", lambda text=None, extension=None: None)
+
+    runner = CliRunner()
+    inputs = "\n".join(
+        [
+            "claude",
+            "file",
+            "keyword",
+            "my-research",
+            "",
+            "custom",
+            "editor",
+            "",
+        ]
+    )
+
+    result = runner.invoke(
+        app,
+        ["onboard", "--workspace", str(onboard_dir)],
+        input=inputs,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "no changes saved" in result.output
+    # Flow still proceeds to freeze (with the unedited defaults).
+    assert "task frozen" in result.output

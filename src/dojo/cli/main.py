@@ -65,6 +65,7 @@ from dojo.cli.domain import app as domain_app  # noqa: E402
 from dojo.cli.experiments import app as experiments_app  # noqa: E402
 from dojo.cli.program import app as program_app  # noqa: E402
 from dojo.cli.runs import app as runs_app  # noqa: E402
+from dojo.cli.skill import app as skill_app  # noqa: E402
 from dojo.cli.task import app as task_app  # noqa: E402
 
 app.add_typer(config_app, name="config")
@@ -73,3 +74,4 @@ app.add_typer(task_app, name="task")
 app.add_typer(runs_app, name="runs")
 app.add_typer(experiments_app, name="experiments")
 app.add_typer(program_app, name="program")
+app.add_typer(skill_app, name="skill")
