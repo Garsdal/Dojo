@@ -481,6 +481,18 @@ def _prompt_config_choices(config_path: Path) -> None:
         ],
         default="keyword",
     )
+    sandbox_backend = _select(
+        "Sandbox backend (where each experiment script runs)",
+        choices=[
+            ("Local subprocess (default — fast, no Docker required)", "local"),
+            (
+                "Docker (containerised with --memory/--cpus limits — requires Docker; "
+                "first `dojo domain setup` pulls image + builds `.venv-docker/`)",
+                "docker",
+            ),
+        ],
+        default="local",
+    )
 
     # Only patch when the user changed something away from defaults.
     _patch_config_full(
@@ -490,6 +502,7 @@ def _prompt_config_choices(config_path: Path) -> None:
         mlflow_uri=mlflow_uri,
         mlflow_experiment=mlflow_experiment,
         linker=linker if linker != "keyword" else None,
+        sandbox_backend=sandbox_backend if sandbox_backend != "local" else None,
     )
 
 
@@ -501,16 +514,17 @@ def _patch_config_full(
     mlflow_uri: str | None,
     mlflow_experiment: str | None,
     linker: str | None,
+    sandbox_backend: str | None = None,
 ) -> None:
     """Patch the YAML config with whatever the user chose. No-ops on full defaults."""
-    if not any([agent_backend, tracking, mlflow_uri, mlflow_experiment, linker]):
+    if not any([agent_backend, tracking, mlflow_uri, mlflow_experiment, linker, sandbox_backend]):
         return
 
     # Reuse `patch_config` for the simple agent/tracking knobs.
     if agent_backend or tracking:
         patch_config(config_path, tracking=tracking, agent_backend=agent_backend)
 
-    if not (mlflow_uri or mlflow_experiment or linker):
+    if not (mlflow_uri or mlflow_experiment or linker or sandbox_backend):
         return
 
     data = yaml.safe_load(config_path.read_text()) or {}
@@ -520,6 +534,8 @@ def _patch_config_full(
         data.setdefault("tracking", {})["mlflow_experiment_name"] = mlflow_experiment
     if linker:
         data.setdefault("memory", {})["linker"] = linker
+    if sandbox_backend:
+        data.setdefault("sandbox", {})["backend"] = sandbox_backend
     config_path.write_text(yaml.safe_dump(data, sort_keys=True))
 
 

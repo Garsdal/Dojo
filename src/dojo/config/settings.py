@@ -26,6 +26,25 @@ class SandboxSettings(BaseSettings):
     # per invocation with `dojo domain setup --timeout`.
     verification_timeout: float = 600.0
 
+    # Which Sandbox implementation to build. "local" (default) runs in a
+    # subprocess on the host; "docker" runs each script inside an ephemeral
+    # container with --memory/--cpus limits so an OOM kills the container,
+    # not the host.
+    backend: str = "local"  # "local" | "docker"
+    # Docker-only knobs. memory_limit/cpu_limit are passed straight to
+    # `docker --memory` / `--cpus`; set to None to leave unlimited (default
+    # docker behaviour). image defaults to python:3.11-slim — the project's
+    # minimum supported Python — so a workspace that targets 3.11+ never sees
+    # a newer-than-promised container Python. Override via the env/config to
+    # match your workspace's Python.
+    # network defaults to "bridge" so experiments can fetch datasets, pull HF
+    # models, hit MLflow tracking URIs, etc.; set to "none" for strict
+    # no-network sandboxing.
+    memory_limit: str | None = None  # e.g. "8g"
+    cpu_limit: str | None = None  # e.g. "4"
+    image: str = "python:3.11-slim"
+    network: str = "bridge"  # "bridge" | "none" | named network
+
 
 class StorageSettings(BaseSettings):
     """Storage configuration."""

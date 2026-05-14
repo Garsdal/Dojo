@@ -13,6 +13,26 @@ for the release workflow.
 
 ## [Unreleased]
 
+## [v0.0.22] - 2026-05-14
+
+### Agent prompts
+
+(none in this release)
+
+### Added
+
+- **`DockerSandbox` — opt-in containerised execution** ([src/dojo/sandbox/docker.py](src/dojo/sandbox/docker.py)). New `Sandbox` adapter that shells out to `docker run` with `--memory`/`--cpus` limits so an experiment that OOMs kills the container, not the host — the dojo lab keeps running. Enable with `sandbox.backend = "docker"` in `.dojo/config.yaml` (or `DOJO_SANDBOX__BACKEND=docker`). New config knobs on `SandboxSettings`: `memory_limit` (e.g. `"8g"`), `cpu_limit` (e.g. `"4"`), `image` (default `python:3.11-slim` — matches the project's minimum supported Python so a workspace targeting 3.11+ never sees a newer-than-promised container Python), `network` (default `"bridge"` so experiments can fetch datasets / pull HF models / hit MLflow; set `"none"` for strict isolation). The workspace is bind-mounted at the same absolute path. Container OOMKilled / exec-format-error stderr is prefixed with a clear `[dojo]` marker pointing the user at the fix. (#23)
+- **`_build_sandbox(settings)` dispatch** in [src/dojo/api/deps.py](src/dojo/api/deps.py) mirroring `_build_tracking` / `_build_memory`. Unknown `sandbox.backend` values raise at `build_lab()` time per the project's "no silent fallbacks" rule. (#23)
+- **`WorkspaceService` builds `.venv-docker/` when the docker backend is selected** ([src/dojo/runtime/workspace_service.py](src/dojo/runtime/workspace_service.py)). On `dojo domain setup` with `sandbox.backend = "docker"`, the service runs a one-shot `docker run` against the configured image, materialises a Linux-compatible sibling venv next to the host's `.venv/` (uv flow for `pyproject.toml`, pip flow for `requirements.txt`, empty venv otherwise), and publishes its python path on `workspace.python_path`. macOS users no longer have to set anything up by hand. First build pulls the image + installs deps (can take minutes); subsequent runs reuse the cached venv. Add `.venv-docker/` to your workspace's `.gitignore`. Delete the directory to force a rebuild after dep changes. (#23)
+
+### Changed
+
+- **Sandbox vs. workspace concerns separated.** Producing a Linux-compatible interpreter is now a workspace concern (`WorkspaceService`), not a sandbox one. `DockerSandbox` no longer rewrites `python_path` or rebuilds venvs — it just runs whatever python the workspace publishes. Future container backends (podman, Modal sandbox) get the venv flow for free without each reimplementing it. (#23)
+
+### Removed
+
+- **`ComputeBackend` / `LocalCompute` / `LabEnvironment.compute`** ([src/dojo/compute/](src/dojo/compute/), [src/dojo/interfaces/compute.py](src/dojo/interfaces/compute.py)). The interface had a single in-process adapter that nothing in the codebase ever called — all real execution flows through `Sandbox`. Deleting the unearned abstraction now while we're still pre-1.0; a future Modal/remote-execution feature will be a `Sandbox` adapter (`ModalSandbox`), not a separate compute layer. (#23)
+
 ## [v0.0.21] - 2026-05-14
 
 ### Agent prompts

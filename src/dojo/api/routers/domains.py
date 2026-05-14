@@ -393,7 +393,7 @@ async def setup_workspace(domain_id: str, request: Request) -> dict:
         raise HTTPException(status_code=400, detail="Domain has no workspace configured")
 
     settings: Settings = request.app.state.settings
-    ws_service = WorkspaceService(settings.storage.base_dir)
+    ws_service = WorkspaceService(settings.storage.base_dir, settings.sandbox)
     try:
         workspace = await ws_service.setup(domain)
         domain.workspace = workspace
@@ -419,7 +419,7 @@ async def workspace_status(domain_id: str, request: Request) -> dict:
         return {"configured": False}
 
     settings: Settings = request.app.state.settings
-    ws_service = WorkspaceService(settings.storage.base_dir)
+    ws_service = WorkspaceService(settings.storage.base_dir, settings.sandbox)
     return ws_service.get_status(domain.workspace)
 
 
@@ -438,7 +438,7 @@ async def validate_workspace(domain_id: str, request: Request) -> dict:
         raise HTTPException(status_code=400, detail="Domain has no workspace configured")
 
     settings: Settings = request.app.state.settings
-    ws_service = WorkspaceService(settings.storage.base_dir)
+    ws_service = WorkspaceService(settings.storage.base_dir, settings.sandbox)
     return await ws_service.validate(domain)
 
 

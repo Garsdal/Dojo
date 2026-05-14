@@ -9,10 +9,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dojo.config.settings import SandboxSettings
 from dojo.core.domain import Domain, Workspace, WorkspaceSource
 from dojo.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Sibling venv built inside the configured docker image. Lives next to the
+# host's `.venv/` so users keep their existing workflow; the suffix is the
+# only thing telling them apart.
+_DOCKER_VENV_DIRNAME = ".venv-docker"
 
 
 class WorkspaceService:
@@ -20,10 +26,24 @@ class WorkspaceService:
 
     A workspace is a persistent execution environment for a domain.
     Setup happens once; all agent runs reuse the prepared workspace.
+
+    When the docker sandbox backend is selected, this service also builds a
+    sibling ``.venv-docker/`` inside the configured image so that
+    ``workspace.python_path`` points at a Linux-compatible interpreter
+    regardless of the host platform. The sandbox itself stays unaware of
+    this — it just runs whatever python path the workspace publishes.
     """
 
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(
+        self,
+        base_dir: Path,
+        sandbox_settings: SandboxSettings | None = None,
+    ) -> None:
         self.base_dir = base_dir / "workspaces"
+        # Default to a plain LocalSandbox-style config when no settings are
+        # provided. Tests that don't care about the docker venv path can keep
+        # the old `WorkspaceService(base_dir)` call.
+        self.sandbox_settings = sandbox_settings or SandboxSettings()
 
     async def setup(self, domain: Domain) -> Workspace:
         """Prepare a workspace for a domain.
@@ -52,6 +72,15 @@ class WorkspaceService:
             await self._run_setup_script(ws_path, ws.setup_script)
 
         python_path = await self._ensure_python_env(ws_path, ws)
+
+        # When docker is the configured backend the host's `.venv/bin/python`
+        # won't run inside a Linux container (most commonly: macOS host,
+        # Linux image). Build `.venv-docker/` once per workspace and publish
+        # that as the workspace's interpreter. The sandbox stays unaware —
+        # it just runs whatever path it's handed.
+        if self.sandbox_settings.backend == "docker":
+            python_path = await self._ensure_docker_venv(ws_path)
+
         ws.python_path = python_path
         ws.ready = True
 
@@ -281,3 +310,93 @@ class WorkspaceService:
         _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300.0)
         if proc.returncode != 0:
             raise RuntimeError(f"Setup script failed: {stderr.decode()}")
+
+    async def _ensure_docker_venv(self, ws_path: Path) -> str:
+        """Build (or reuse) ``<ws_path>/.venv-docker/`` inside the configured
+        docker image and return its python path.
+
+        The build runs in a one-shot ``docker run`` with the workspace
+        bind-mounted at the same absolute path, so files land on the host. We
+        pick the install command from the workspace's manifest:
+
+        - ``pyproject.toml`` → ``uv sync --no-install-project --no-dev`` (the
+          workspace's own package often needs system build deps the slim
+          image doesn't ship; experiments still import workspace code via the
+          bind-mounted source tree).
+        - ``requirements.txt`` → ``pip install -r``.
+        - neither → empty venv (still gives a Linux-compatible interpreter).
+
+        Idempotent: an existing ``.venv-docker/bin/python`` short-circuits
+        the build. Delete the directory to force a rebuild after dep changes.
+        """
+        venv_root = ws_path / _DOCKER_VENV_DIRNAME
+        venv_python = venv_root / "bin" / "python"
+        if venv_python.exists():
+            return str(venv_python)
+
+        image = self.sandbox_settings.image
+        setup_cmd = _docker_venv_setup_cmd(ws_path)
+        logger.info("docker_venv_build_start", cwd=str(ws_path), image=image)
+
+        argv = [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{ws_path}:{ws_path}",
+            "-w",
+            str(ws_path),
+            image,
+            "bash",
+            "-lc",
+            setup_cmd,
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=900.0)
+        stdout = stdout_b.decode()
+        stderr = stderr_b.decode()
+
+        if proc.returncode != 0:
+            logger.warning(
+                "docker_venv_build_failed",
+                cwd=str(ws_path),
+                image=image,
+                exit_code=proc.returncode,
+                stderr_tail=stderr[-500:],
+            )
+            raise RuntimeError(
+                f"Failed to build {venv_root} inside {image} "
+                f"(exit code {proc.returncode}). stderr tail:\n{stderr[-500:]}"
+            )
+
+        if not venv_python.exists():
+            raise RuntimeError(
+                f"Docker venv build reported success but {venv_python} is missing. "
+                f"stdout tail:\n{stdout[-500:]}"
+            )
+
+        logger.info("docker_venv_build_done", cwd=str(ws_path), python=str(venv_python))
+        return str(venv_python)
+
+
+def _docker_venv_setup_cmd(ws_path: Path) -> str:
+    """Pick the right install flow for the workspace's dep manifest."""
+    if (ws_path / "pyproject.toml").exists():
+        return (
+            "set -euo pipefail; "
+            "pip install --quiet uv && "
+            f"uv venv {_DOCKER_VENV_DIRNAME} && "
+            f'VIRTUAL_ENV="$PWD/{_DOCKER_VENV_DIRNAME}" '
+            "uv sync --active --no-install-project --no-dev"
+        )
+    if (ws_path / "requirements.txt").exists():
+        return (
+            "set -euo pipefail; "
+            f"python -m venv {_DOCKER_VENV_DIRNAME} && "
+            f"{_DOCKER_VENV_DIRNAME}/bin/pip install --quiet -r requirements.txt"
+        )
+    return f"set -euo pipefail; python -m venv {_DOCKER_VENV_DIRNAME}"

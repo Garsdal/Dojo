@@ -42,7 +42,7 @@ dojo domain setup
 dojo run
 ```
 
-That's the whole package, from a user's perspective. The user **never needs to know** there's a `LabEnvironment`, a `TaskService`, a `ComputeBackend`, an MCP server, an `AgentBackend`, or storage adapters. Those exist for *us* — so we can swap the agent (Claude → another model), the storage layer (local JSON → Postgres), the tracking backend (file → MLflow), or the sandbox (subprocess → Docker) without touching the user-facing flow above.
+That's the whole package, from a user's perspective. The user **never needs to know** there's a `LabEnvironment`, a `TaskService`, a `Sandbox`, an MCP server, an `AgentBackend`, or storage adapters. Those exist for *us* — so we can swap the agent (Claude → another model), the storage layer (local JSON → Postgres), the tracking backend (file → MLflow), or the sandbox (subprocess → Docker) without touching the user-facing flow above.
 
 **First principles** (push back if a change violates these):
 - **Single-tenant.** One user, one machine, local JSON state in `.dojo/`. No tenant ids, no RBAC, no SaaS-shaped APIs.
@@ -77,8 +77,7 @@ These exist behind interfaces in [src/dojo/interfaces/](src/dojo/interfaces/). A
 | Interface | Today's adapter(s) | Future possibilities |
 |---|---|---|
 | `AgentBackend` | `ClaudeAgentBackend`, `StubAgent` | Other LLM SDKs, hosted services |
-| `ComputeBackend` | `LocalCompute` (in-process) | Remote/distributed |
-| `Sandbox` | `LocalSandbox` (subprocess) | Docker, microVM, cloud sandbox |
+| `Sandbox` | `LocalSandbox` (subprocess), `DockerSandbox` (containerised, opt-in) | microVM, cloud sandbox, Modal |
 | `TrackingConnector` | `FileTracker`, `MlflowTracker`, `NoopTracker` | W&B, Neptune |
 | `DomainStore`/`ExperimentStore`/`MemoryStore`/`KnowledgeLinkStore`/`ArtifactStore`/`RunStore` | `Local*` (JSON files) | Postgres, S3 |
 | `KnowledgeLinker` | `KeywordKnowledgeLinker` | Agentic / embedding-based |
@@ -146,7 +145,7 @@ Settings (YAML + env)  →  build_lab(settings)  →  LabEnvironment (DI contain
                                                         │
 CLI (Typer) → create_app(settings) → FastAPI ←──────────┘
                     │                          LabEnvironment {
-              Router handlers                    compute, sandbox,
+              Router handlers                    sandbox,
                     │                            experiment_store, artifact_store,
         AgentOrchestrator + Backend              memory_store, tracking,
         (Claude / Stub)                          domain_store, knowledge_link_store,
@@ -154,7 +153,7 @@ CLI (Typer) → create_app(settings) → FastAPI ←─────────�
         TaskService / ExperimentService          settings
         / WorkspaceService                     }
                     │
-        Adapters (storage / tracking / sandbox / compute / agent)
+        Adapters (storage / tracking / sandbox / agent)
 ```
 
 **Composition root:** [api/deps.py](src/dojo/api/deps.py) `build_lab()` constructs every adapter and injects them into a single `LabEnvironment` dataclass. The CLI uses [cli/_lab.py](src/dojo/cli/_lab.py) `build_cli_lab()` for the same purpose without spinning up the HTTP app.
@@ -171,9 +170,8 @@ CLI (Typer) → create_app(settings) → FastAPI ←─────────�
 | [src/dojo/interfaces/](src/dojo/interfaces/) | ABCs (ports). One file per backend type. |
 | [src/dojo/storage/local/](src/dojo/storage/local/) | Local JSON adapters: domain, experiment, memory, knowledge_link, artifact, run. |
 | [src/dojo/tracking/](src/dojo/tracking/) | `FileTracker`, `MlflowTracker` (≥3.0), `NoopTracker`. |
-| [src/dojo/sandbox/](src/dojo/sandbox/) | `LocalSandbox` (subprocess) — only adapter today. |
-| [src/dojo/compute/](src/dojo/compute/) | `LocalCompute` (in-process). |
-| [src/dojo/runtime/](src/dojo/runtime/) | `LabEnvironment` + lifecycle services: `TaskService`, `ExperimentService`, `DomainService`, `WorkspaceService`, `KeywordKnowledgeLinker`, `runner.py`, `tool_verifier.py`, `program_loader.py`, `setup_loader.py`. |
+| [src/dojo/sandbox/](src/dojo/sandbox/) | `LocalSandbox` (subprocess, default) and `DockerSandbox` (ephemeral container, opt-in via `sandbox.backend = "docker"`). |
+| [src/dojo/runtime/](src/dojo/runtime/) | `LabEnvironment` + lifecycle services: `TaskService`, `ExperimentService`, `DomainService`, `WorkspaceService` (also owns `.venv-docker/` build when the docker backend is selected), `KeywordKnowledgeLinker`, `runner.py`, `tool_verifier.py`, `program_loader.py`, `setup_loader.py`. |
 | [src/dojo/agents/](src/dojo/agents/) | Orchestration. `AgentBackend` ABC + `backends/claude.py` & `backends/stub.py`. `AgentOrchestrator`, `prompts.py`, `summarizer.py` (end-of-run knowledge flush). |
 | [src/dojo/tools/](src/dojo/tools/) | MCP tool definitions. `experiments.py`, `knowledge.py`, `tracking.py`, `tool_generation.py`. `adapters/claude.py` converts `ToolDef` → MCP server. |
 | [src/dojo/api/](src/dojo/api/) | FastAPI app. `app.py`, `deps.py`, `routers/` (one per resource). |
@@ -408,3 +406,4 @@ Mirror the existing dispatch in `_build_tracking()` in [api/deps.py](src/dojo/ap
 - **Frontend not bundled in the PyPI release** — `dojo start` runs the API; UI users still clone the repo and `npm install` separately. Bundling built assets is planned for a later release.
 - **`docs/`** — only `MASTER_PLAN.md`, `RELEASING.md`, `NEXT_STEPS.md`, and the `archive/` directory remain. Don't trust archived docs without cross-checking the code.
 - **Tool-generation model split** — `dojo domain setup` calls `backend.complete()` with `settings.agent.tool_generation_model` (which can require an `ANTHROPIC_API_KEY`); agent runs use the local `claude` CLI auth.
+- **`DockerSandbox` is containment-only** — set `sandbox.backend = "docker"` (or `DOJO_SANDBOX__BACKEND=docker`) to run experiments inside an ephemeral container with `--memory`/`--cpus` limits. Default image is `python:3.11-slim` (matches the project's minimum supported Python so a workspace that targets 3.11+ never sees a newer-than-promised container Python). Default `--network=bridge` so experiments can fetch datasets / pull HF models / hit MLflow; flip to `"none"` for strict isolation. The workspace is bind-mounted at the same absolute path. **Producing a Linux-compatible interpreter is a workspace concern, not a sandbox concern.** When `sandbox.backend = "docker"`, `WorkspaceService.setup(domain)` builds a sibling `.venv-docker/` next to the host's `.venv/` from the workspace's `pyproject.toml` (via `uv sync --no-install-project --no-dev`) or `requirements.txt` and publishes its python path on `workspace.python_path`. The sandbox itself stays unaware. First build can take minutes (image pull + deps); subsequent runs are instant. Add `.venv-docker/` to your workspace's `.gitignore`. To force a rebuild after dep changes, delete the directory and re-run `dojo domain setup`.
