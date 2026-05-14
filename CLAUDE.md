@@ -6,7 +6,7 @@
 
 ## How to read this file
 
-1. **[The product in 2 commands](#the-product-in-2-commands)** — the user-visible UX. Start here. Internalise this before touching anything: `cd <project>` → `dojo onboard` → `dojo run`. The four-step path (`dojo init` → edit `PROGRAM.md` + `SETUP.md` → `dojo task setup` → `dojo run`) is the same flow for non-interactive / scripted use. Everything else in this codebase exists to make those steps work and to let us swap implementations underneath.
+1. **[The product in 2 commands](#the-product-in-2-commands)** — the user-visible UX. Start here. Internalise this before touching anything: `cd <project>` → `dojo onboard` → `dojo run`. The scripted equivalent is `dojo onboard --non-interactive --name X` (writes default `PROGRAM.md` + `SETUP.md` and stops), then edit the files, then `dojo domain setup` → `dojo run`. Everything else in this codebase exists to make those steps work and to let us swap implementations underneath.
 2. **[Core vs swappable adapters](#core-vs-swappable-adapters)** — what is the product (must not break) vs what is plumbing (designed to be replaced). Use this to judge "should this change live in the core, or behind an adapter?"
 3. **[Quick commands](#quick-commands)** — tests, lint, run, **and release**. We work toward releases often: a typical session ends with a version bump, changelog entry, and tag push. The release flow is documented inline in [Releasing](#releasing).
 4. **The rest of the file** is reference: architecture diagram, directory map, domain model, recipes, conventions. Skim by section heading; don't read top-to-bottom.
@@ -31,13 +31,14 @@ PROGRAM.md / SETUP.md prompting (or a sklearn `--preset` flag for the
 fresh-tire-kicker case), then inline AI tool generation + verification
 (with auto-install on `ModuleNotFoundError`) + freeze.
 
-For non-interactive / scripted use the older four-step path stays
-available — it's what `dojo init` is for now:
+For non-interactive / scripted use, `dojo onboard --non-interactive
+--name X` writes the default templates and stops before tool generation;
+the caller edits `PROGRAM.md` + `SETUP.md`, then runs `dojo domain setup`:
 
 ```bash
-dojo init --name my-domain --task-type regression --non-interactive
+dojo onboard --non-interactive --name my-domain --workspace .
 $EDITOR PROGRAM.md SETUP.md
-dojo task setup
+dojo domain setup
 dojo run
 ```
 
@@ -63,7 +64,7 @@ When you're about to add code, ask: "is this the product, or is it a wrapper tha
 | Where | What it owns |
 |---|---|
 | [src/dojo/core/](src/dojo/core/) | Pure domain models: `Domain`, `Task`, `Workspace`, `Experiment`, `KnowledgeAtom`, state machines. No I/O. The conceptual model of Dojo. |
-| [src/dojo/cli/](src/dojo/cli/) | The user-facing surface: `onboard` (recommended), `init` (scripted), `run`, `task`, `program`, `runs`, `experiments`, `stop`, `start`, `config`, `domain`. This is what the user sees. |
+| [src/dojo/cli/](src/dojo/cli/) | The user-facing surface: `onboard` (entry point — interactive or `--non-interactive`), `run`, `stop`, `start`, `domain` (`setup`/`unfreeze`/`show`/`use`), `program`, `runs`, `experiments`, `config`, `skill`. This is what the user sees. |
 | [src/dojo/runtime/](src/dojo/runtime/) | Lifecycle services: `TaskService` (create/freeze/verify), `ExperimentService`, `WorkspaceService`, `runner.py` (the runner stub that wires `train()` ↔ `evaluate()`), `tool_verifier.py`. These enforce the frozen-contract guarantee. |
 | [src/dojo/agents/](src/dojo/agents/) | `AgentOrchestrator`, `AgentRun`, system prompts, end-of-run knowledge summarizer. The orchestration logic *is* the product — agent backends underneath are swappable. |
 | [src/dojo/tools/](src/dojo/tools/) | The MCP tool surface the agent sees: `run_experiment`, `write_knowledge`, `complete_experiment`, etc. Changing a tool's name or description changes user-visible agent behaviour. |
@@ -102,8 +103,8 @@ just run-claude-mlflow
 just stop             # Kill backend (:8000), frontend (:5173), MLflow (:8080)
 
 # In-process — no server needed
-uv run dojo init --name foo --task-type regression
-uv run dojo task setup
+uv run dojo onboard --non-interactive --name foo
+uv run dojo domain setup
 uv run dojo run
 ```
 
@@ -211,7 +212,7 @@ Invalid transitions raise `InvalidTransitionError` from [core/state_machine.py](
 
 ### Task contract (the anti-cheating gate)
 
-A Task is the frozen contract for a domain's research loop. The user describes the data + evaluation in `SETUP.md`; `dojo task setup` uses an LLM to generate `load_data.py` and `evaluate.py`, runs them through [runtime/tool_verifier.py](src/dojo/runtime/tool_verifier.py) against the task's `ToolContract`s, and freezes the task. The orchestrator calls `assert_ready` before configuring the backend — agent runs against a non-frozen task are rejected with exit code 3.
+A Task is the frozen contract for a domain's research loop. The user describes the data + evaluation in `SETUP.md`; `dojo domain setup` uses an LLM to generate `load_data.py` and `evaluate.py`, runs them through [runtime/tool_verifier.py](src/dojo/runtime/tool_verifier.py) against the task's `ToolContract`s, and freezes the task. The orchestrator calls `assert_ready` before configuring the backend — agent runs against a non-frozen task are rejected with exit code 3.
 
 `complete_experiment` rejects metric keys outside `task.config["expected_metrics"]` (auto-seeded from the registry's evaluator contract).
 
@@ -221,7 +222,7 @@ A Task is the frozen contract for a domain's research loop. The user describes t
 - `def train(X_train, y_train, X_test, *, artifacts_dir) -> y_pred`
 - `def evaluate(y_pred, *, X_train, X_test, y_train, y_test, artifacts_dir) -> dict`
 
-Both share the same per-experiment `artifacts_dir`; anything written there is archived and forwarded to the tracking backend. Train artifacts are opportunistic (model checkpoints, training plots — agent's discretion); evaluate's are durable per-run by design (residuals, calibration). Bump `contract_version` whenever any `tool_contracts` shape changes; existing frozen tasks auto-reject on `assert_ready` and the user re-runs `dojo task setup`.
+Both share the same per-experiment `artifacts_dir`; anything written there is archived and forwarded to the tracking backend. Train artifacts are opportunistic (model checkpoints, training plots — agent's discretion); evaluate's are durable per-run by design (residuals, calibration). Bump `contract_version` whenever any `tool_contracts` shape changes; existing frozen tasks auto-reject on `assert_ready` and the user re-runs `dojo domain setup`.
 
 ### Knowledge linking
 
@@ -244,7 +245,7 @@ End of every run, [agents/summarizer.py](src/dojo/agents/summarizer.py) extracts
 
 ### Backends
 
-- **`ClaudeAgentBackend`** — uses `ClaudeSDKClient` from `claude-agent-sdk`. Tools served via MCP. Inherits the user's local `claude` CLI auth (no API key needed for runs; an `ANTHROPIC_API_KEY` is needed only for the tool-generation `complete()` call during `dojo task setup`).
+- **`ClaudeAgentBackend`** — uses `ClaudeSDKClient` from `claude-agent-sdk`. Tools served via MCP. Inherits the user's local `claude` CLI auth (no API key needed for runs; an `ANTHROPIC_API_KEY` is needed only for the tool-generation `complete()` call during `dojo domain setup`).
 - **`StubAgent`** — deterministic mock for offline / CI runs.
 
 `create_agent_backend(settings.agent.backend)` in [agents/factory.py](src/dojo/agents/factory.py) dispatches on `"claude"` | `"stub"`.
@@ -406,4 +407,4 @@ Mirror the existing dispatch in `_build_tracking()` in [api/deps.py](src/dojo/ap
 - **`Domain.tools` still exists alongside `domain.task.tools`** — `domain.task.tools` is the source of truth (`collect_all_tools` reads from there when a task is set, with `domain.tools` as a legacy fallback). `Domain.tools` is mirrored on writes for the existing frontend response; the field will be removed in the frontend audit.
 - **Frontend not bundled in the PyPI release** — `dojo start` runs the API; UI users still clone the repo and `npm install` separately. Bundling built assets is planned for a later release.
 - **`docs/`** — only `MASTER_PLAN.md`, `RELEASING.md`, `NEXT_STEPS.md`, and the `archive/` directory remain. Don't trust archived docs without cross-checking the code.
-- **Tool-generation model split** — `dojo task setup` calls `backend.complete()` with `settings.agent.tool_generation_model` (which can require an `ANTHROPIC_API_KEY`); agent runs use the local `claude` CLI auth.
+- **Tool-generation model split** — `dojo domain setup` calls `backend.complete()` with `settings.agent.tool_generation_model` (which can require an `ANTHROPIC_API_KEY`); agent runs use the local `claude` CLI auth.

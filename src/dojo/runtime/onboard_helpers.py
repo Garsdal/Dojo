@@ -34,7 +34,7 @@ _CALIFORNIA_HOUSING_PROGRAM = """\
 > agent reads this file at the start of each run.
 >
 > Data and evaluation specifics live in `SETUP.md` (read once by
-> `dojo task setup` to generate `load_data` + `evaluate`).
+> `dojo domain setup` to generate `load_data` + `evaluate`).
 
 ## Goal
 Predict California median house value (regression). Minimise RMSE on a 20% held-out test split.
@@ -52,8 +52,8 @@ Beat a linear baseline. Try at least one tree-based model. Avoid overfitting.
 _CALIFORNIA_HOUSING_SETUP = """\
 # California housing — task setup
 
-> Used once by `dojo task setup` to generate `load_data` + `evaluate`.
-> Edit, then run `dojo task setup` to (re)generate and freeze.
+> Used once by `dojo domain setup` to generate `load_data` + `evaluate`.
+> Edit, then run `dojo domain setup` to (re)generate and freeze.
 > The agent does NOT read this file at run-time — it sees `PROGRAM.md`.
 
 ## Dataset
@@ -108,7 +108,7 @@ def is_path_inside_dojo_repo(workspace: Path, *, dojo_repo: Path | None = None) 
 
     Used to warn before writing `.dojo/` somewhere the user almost certainly
     didn't mean — the documented mis-invocation is
-    `uv --directory /path/to/Dojo run dojo init` which makes the CLI cd into
+    `uv --directory /path/to/Dojo run dojo onboard` which makes the CLI cd into
     the Dojo source tree and create `.dojo/` there.
 
     `dojo_repo` defaults to the package's resolved location's parent twice

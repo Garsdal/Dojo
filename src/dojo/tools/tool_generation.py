@@ -37,7 +37,7 @@ def build_task_generation_prompt(
     Args:
         domain: The domain the task belongs to (provides name + description).
         task: The task — `task.config` carries optional structured hints.
-        hint: Extra user-supplied hint (typically from `dojo task generate --hint`).
+        hint: Extra user-supplied hint (typically from `dojo domain setup --hint`).
         setup_md: The contents of SETUP.md, treated as the user's natural-
             language data + evaluation spec. Strict source of truth — the AI
             generator does not see PROGRAM.md.

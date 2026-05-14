@@ -193,12 +193,12 @@ class TaskService:
         if task is None:
             raise TaskNotReadyError(
                 f"Domain {domain_id!r} has no task. "
-                "Create one with `dojo task create` or POST /domains/{id}/task."
+                "Create one with `dojo onboard` or POST /domains/{id}/task."
             )
         if not task.frozen:
             raise TaskNotReadyError(
                 f"Domain {domain_id!r} task is not frozen. "
-                "Freeze it with `dojo task freeze` or POST /domains/{id}/task/freeze."
+                "Freeze it with `dojo domain setup` or POST /domains/{id}/task/freeze."
             )
         spec = TASK_TYPE_REGISTRY.get(task.type)
         if spec is not None:
@@ -208,7 +208,7 @@ class TaskService:
                     f"Domain {domain_id!r} task was frozen against "
                     f"contract version {stored!r}, but the current contract is "
                     f"version {spec.contract_version}. Regenerate, re-verify, "
-                    f"and re-freeze: `dojo task generate` then `dojo task freeze`."
+                    f"and re-freeze: `dojo domain unfreeze` then `dojo domain setup`."
                 )
         errors = _verification_errors(task)
         if errors:
@@ -230,7 +230,7 @@ class TaskService:
         """Return ``<storage_base>/domains/{id}/sources`` — editable pre-freeze
         copies of the generated tool modules.
 
-        These are the user-facing files for `dojo task generate` / `setup` and
+        These are the user-facing files for `dojo domain setup` and
         the working dir for verification (so any cache files written by
         `load_data` persist next to the module across runs).
         """
@@ -336,7 +336,7 @@ def _verification_errors(task: Task) -> list[str]:
             out.append(f"required tool {contract.name!r} is missing")
             continue
         if tool.verification is None:
-            out.append(f"{contract.name}: not yet verified — run `dojo task generate`")
+            out.append(f"{contract.name}: not yet verified — run `dojo domain setup`")
             continue
         if not tool.verification.verified:
             details = "; ".join(tool.verification.errors) or "verification failed"

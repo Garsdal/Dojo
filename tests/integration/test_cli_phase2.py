@@ -1,12 +1,12 @@
 """Phase 2 CLI happy-path integration tests.
 
-Covers the user-facing surface introduced by Phase 2:
-  - dojo init (non-interactive)
-  - dojo task show / freeze / unfreeze
+Covers the user-facing surface:
+  - dojo onboard --non-interactive
+  - dojo domain show / unfreeze (freeze is internal — exercised via dojo domain setup)
   - dojo program show
   - dojo run (with stub agent, in-process, no server)
   - dojo runs ls / show
-  - dojo domain use / current
+  - dojo domain use
 
 Tests use Typer's CliRunner. Each test runs in a fresh tmp dir so the
 generated `.dojo/` does not collide.
@@ -28,17 +28,17 @@ from dojo.cli.main import app
 def cli_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Run each CLI test in an isolated working directory."""
     monkeypatch.chdir(tmp_path)
-    # Force stub agent so `dojo init` doesn't try to call claude
+    # Force stub agent so onboard doesn't try to call claude
     monkeypatch.setenv("DOJO_AGENT__BACKEND", "stub")
     yield tmp_path
 
 
 @pytest.fixture
 def initialized_dir(cli_dir: Path) -> Path:
-    """An isolated dir that has gone through `dojo init` non-interactively.
+    """An isolated dir that has gone through `dojo onboard --non-interactive`.
 
-    Phase 3.5: no `--data-path` / `--target-column` — the user is expected to
-    describe the dataset in PROGRAM.md, then run `dojo task setup`.
+    The user is expected to describe the dataset in SETUP.md, then run
+    `dojo domain setup`.
     """
     runner = CliRunner()
     workspace = cli_dir / "ws"
@@ -47,16 +47,11 @@ def initialized_dir(cli_dir: Path) -> Path:
     result = runner.invoke(
         app,
         [
-            "init",
+            "onboard",
             "--name",
             "housing",
-            "--description",
-            "predict prices",
             "--workspace",
             str(workspace),
-            "--task-type",
-            "regression",
-            "--no-setup",
             "--non-interactive",
         ],
     )
@@ -64,7 +59,7 @@ def initialized_dir(cli_dir: Path) -> Path:
     return cli_dir
 
 
-def test_init_non_interactive_creates_domain_task_program(initialized_dir: Path):
+def test_onboard_non_interactive_creates_domain_task_program(initialized_dir: Path):
     state = (initialized_dir / ".dojo" / "state.yaml").read_text()
     assert "current_domain_id:" in state
     # PROGRAM.md is scaffolded under .dojo/domains/{id}/ — keeps the user's
@@ -82,33 +77,12 @@ def test_init_non_interactive_creates_domain_task_program(initialized_dir: Path)
     assert "SETUP.md" in body
     assert "## Dataset" not in body
     assert "## Evaluate" not in body
-    assert "## Contract" not in body
-    assert "## Task type" not in body
 
 
-def test_init_works_without_data_path_or_target_column(cli_dir: Path):
-    """Phase 3.5: regression init is happy without dataset flags."""
-    runner = CliRunner()
-    workspace = cli_dir / "ws"
-    workspace.mkdir()
-
-    result = runner.invoke(
-        app,
-        [
-            "init",
-            "--name",
-            "housing",
-            "--workspace",
-            str(workspace),
-            "--task-type",
-            "regression",
-            "--no-setup",
-            "--non-interactive",
-        ],
-    )
-    assert result.exit_code == 0, result.output
+def test_onboard_non_interactive_task_config_defaults(initialized_dir: Path):
+    """Onboard's regression task is happy without dataset flags."""
     # task.config should not contain data_path / target_column
-    domain_files = list((cli_dir / ".dojo" / "domains").glob("*.json"))
+    domain_files = list((initialized_dir / ".dojo" / "domains").glob("*.json"))
     assert len(domain_files) == 1
     import json
 
@@ -121,50 +95,47 @@ def test_init_works_without_data_path_or_target_column(cli_dir: Path):
     assert cfg["expected_metrics"] == ["rmse", "r2", "mae"]
 
 
-def test_init_fails_when_required_field_missing_and_non_interactive(cli_dir: Path):
+def test_onboard_non_interactive_requires_name(cli_dir: Path):
     runner = CliRunner()
-    result = runner.invoke(
-        app,
-        [
-            "init",
-            "--task-type",
-            "regression",
-            "--non-interactive",
-            "--no-setup",
-        ],
-    )
+    result = runner.invoke(app, ["onboard", "--non-interactive"])
     # Missing --name should exit with EXIT_USER_ERROR
     assert result.exit_code != 0
+    assert "--name" in result.output
 
 
-def test_domain_current_after_init(initialized_dir: Path):
+def test_domain_show_after_onboard(initialized_dir: Path):
     runner = CliRunner()
-    result = runner.invoke(app, ["domain", "current"])
+    result = runner.invoke(app, ["domain", "show"])
     assert result.exit_code == 0
     assert "housing" in result.output
-
-
-def test_task_show_after_init(initialized_dir: Path):
-    runner = CliRunner()
-    result = runner.invoke(app, ["task", "show"])
-    assert result.exit_code == 0
     assert "regression" in result.output
     assert "not frozen" in result.output
 
 
-def test_task_freeze_blocked_by_verification_gate(initialized_dir: Path):
-    """Phase 3: freeze rejects (exit 3) when required tools aren't verified."""
+def test_domain_unfreeze(initialized_dir: Path):
+    """Unfreezing flips the task back to mutable — verified via show."""
+    import asyncio
+
+    from dojo.cli._lab import build_cli_lab
+    from dojo.runtime.task_service import TaskService
+
+    # Force-freeze via the service so we can test unfreeze.
+    async def _force_freeze() -> None:
+        lab, _ = build_cli_lab()
+        domain = (await lab.domain_store.list())[0]
+        await TaskService(lab).freeze(domain.id, skip_verification=True)
+
+    asyncio.run(_force_freeze())
+
     runner = CliRunner()
-    blocked = runner.invoke(app, ["task", "freeze"])
-    assert blocked.exit_code == 3
-    assert "verification gate" in blocked.output
+    show = runner.invoke(app, ["domain", "show"])
+    assert "frozen" in show.output and "not frozen" not in show.output
 
-    forced = runner.invoke(app, ["task", "freeze", "--unsafe-skip-verify"])
-    assert forced.exit_code == 0, forced.output
-    assert "without verification" in forced.output
+    unfreeze = runner.invoke(app, ["domain", "unfreeze"])
+    assert unfreeze.exit_code == 0, unfreeze.output
 
-    showed = runner.invoke(app, ["task", "show"])
-    assert "frozen" in showed.output and "not frozen" not in showed.output
+    show_after = runner.invoke(app, ["domain", "show"])
+    assert "not frozen" in show_after.output
 
 
 def test_program_show_prints_scaffolded_content(initialized_dir: Path):
@@ -223,12 +194,12 @@ def test_run_then_runs_show_in_process(initialized_dir: Path, monkeypatch: pytes
 
 
 def test_run_blocked_when_task_not_frozen(initialized_dir: Path):
-    """Phase 3: dojo run exits 3 with an actionable message if task isn't ready."""
+    """`dojo run` exits 3 with an actionable message if task isn't ready."""
     runner = CliRunner()
     result = runner.invoke(app, ["run", "--max-turns", "5"])
     assert result.exit_code == 3, result.output
     assert "task not ready" in result.output
-    assert "dojo task" in result.output
+    assert "dojo domain setup" in result.output
 
 
 def test_runs_show_unknown_id(initialized_dir: Path):
@@ -240,38 +211,41 @@ def test_runs_show_unknown_id(initialized_dir: Path):
 
 def test_no_current_domain_actionable_error(cli_dir: Path):
     runner = CliRunner()
-    # No init has happened yet
-    result = runner.invoke(app, ["task", "show"])
+    # No onboard has happened yet
+    result = runner.invoke(app, ["domain", "show"])
     assert result.exit_code == 1
-    assert "dojo init" in result.output or "domain use" in result.output
+    assert "dojo onboard" in result.output or "domain use" in result.output
 
 
 def test_domain_use_switches_pointer(initialized_dir: Path):
-    runner = CliRunner()
-    # Create a second domain via the CLI
-    workspace = initialized_dir / "ws2"
-    workspace.mkdir()
-    create = runner.invoke(
-        app,
-        [
-            "init",
-            "--name",
-            "housing2",
-            "--workspace",
-            str(workspace),
-            "--task-type",
-            "regression",
-            "--no-setup",
-            "--non-interactive",
-        ],
-    )
-    assert create.exit_code == 0, create.output
+    """`domain use` switches the current-domain pointer between two domains
+    sharing one .dojo/ store. Onboard refuses to scaffold over an existing
+    .dojo/, so the second domain is saved directly via the domain_store."""
+    import asyncio
 
-    # Switch back to the first domain by name
-    use = runner.invoke(app, ["domain", "use", "housing"])
-    assert use.exit_code == 0
-    cur = runner.invoke(app, ["domain", "current"])
-    assert "housing" in cur.output and "housing2" not in cur.output
+    from dojo.cli._lab import build_cli_lab
+    from dojo.core.domain import Domain, DomainStatus
+
+    async def _add_second_domain() -> None:
+        lab, _ = build_cli_lab()
+        await lab.domain_store.save(
+            Domain(name="housing2", description="", status=DomainStatus.ACTIVE)
+        )
+
+    asyncio.run(_add_second_domain())
+
+    runner = CliRunner()
+    # Switch to the second
+    use2 = runner.invoke(app, ["domain", "use", "housing2"])
+    assert use2.exit_code == 0
+    show2 = runner.invoke(app, ["domain", "show"])
+    assert "housing2" in show2.output
+
+    # Switch back to the first by name
+    use1 = runner.invoke(app, ["domain", "use", "housing"])
+    assert use1.exit_code == 0
+    show1 = runner.invoke(app, ["domain", "show"])
+    assert "housing" in show1.output and "housing2" not in show1.output.split("\n")[0]
 
 
 # Suppress the env-var diff between subprocess invocations

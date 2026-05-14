@@ -1,4 +1,4 @@
-"""Integration test for `dojo task setup` — generate + verify + freeze in one shot.
+"""Integration test for `dojo domain setup` — generate + verify + freeze in one shot.
 
 Regression test for the OptionInfo bug: `setup` calling `generate` as a Python
 function used to leak typer.Option default objects (truthy) into `skip_verify`,
@@ -53,30 +53,28 @@ def cli_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DOJO_AGENT__BACKEND", "stub")
     # Also patch the factory so the CLI sees the fake-completion backend
-    import dojo.cli.task as task_cli
+    import dojo.cli.domain as domain_cli
 
     monkeypatch.setattr(
-        task_cli, "create_agent_backend", lambda _name, *, model=None: _FakeBackend()
+        domain_cli, "create_agent_backend", lambda _name, *, model=None: _FakeBackend()
     )
     yield tmp_path
 
 
 @pytest.fixture
 def initialized_dir(cli_dir: Path) -> Path:
+    """A workspace that has been scaffolded by `dojo onboard --non-interactive`."""
     runner = CliRunner()
     workspace = cli_dir / "ws"
     workspace.mkdir()
     result = runner.invoke(
         app,
         [
-            "init",
+            "onboard",
             "--name",
             "fixture",
             "--workspace",
             str(workspace),
-            "--task-type",
-            "regression",
-            "--no-setup",
             "--non-interactive",
         ],
     )
@@ -84,11 +82,11 @@ def initialized_dir(cli_dir: Path) -> Path:
     return cli_dir
 
 
-def test_dojo_task_setup_runs_verification_and_freezes(initialized_dir: Path):
+def test_dojo_domain_setup_runs_verification_and_freezes(initialized_dir: Path):
     """The original bug: `setup` skipped verification because of typer-OptionInfo
     leaking through `generate(...)` defaults, then freeze rejected unverified tools."""
     runner = CliRunner()
-    result = runner.invoke(app, ["task", "setup"])
+    result = runner.invoke(app, ["domain", "setup"])
     assert result.exit_code == 0, result.output
 
     # Per-tool verification markers should be ✓ (passed), not ? (not run)
@@ -110,37 +108,25 @@ def test_dojo_task_setup_runs_verification_and_freezes(initialized_dir: Path):
         assert v["verified"] is True, f"{name} should have verified=True"
 
 
-def test_dojo_task_generate_then_freeze_works_separately(initialized_dir: Path):
-    """The two-step path used by `task generate` + `task freeze` should match `task setup`."""
-    runner = CliRunner()
-    gen = runner.invoke(app, ["task", "generate"])
-    assert gen.exit_code == 0, gen.output
-    fz = runner.invoke(app, ["task", "freeze"])
-    assert fz.exit_code == 0, fz.output
-
-
-def test_dojo_task_setup_surfaces_verification_failure(
+def test_dojo_domain_setup_surfaces_verification_failure(
     cli_dir: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """If the AI's tool fails the contract, freeze refuses with exit 3 + actionable hint."""
     runner = CliRunner()
     workspace = cli_dir / "ws"
     workspace.mkdir()
-    init = runner.invoke(
+    onboard_result = runner.invoke(
         app,
         [
-            "init",
+            "onboard",
             "--name",
             "broken",
             "--workspace",
             str(workspace),
-            "--task-type",
-            "regression",
-            "--no-setup",
             "--non-interactive",
         ],
     )
-    assert init.exit_code == 0, init.output
+    assert onboard_result.exit_code == 0, onboard_result.output
 
     bad_tools_json = """[
       {"name": "load_data", "filename": "load_data.py", "entrypoint": "load_data",
@@ -158,15 +144,15 @@ def test_dojo_task_setup_surfaces_verification_failure(
         async def complete(self, prompt: str) -> str:
             return bad_tools_json
 
-    import dojo.cli.task as task_cli
+    import dojo.cli.domain as domain_cli
 
     monkeypatch.setattr(
-        task_cli, "create_agent_backend", lambda _name, *, model=None: _BrokenBackend()
+        domain_cli, "create_agent_backend", lambda _name, *, model=None: _BrokenBackend()
     )
 
-    result = runner.invoke(app, ["task", "setup"])
+    result = runner.invoke(app, ["domain", "setup"])
     assert result.exit_code == 3, result.output
     assert "verification gate failed" in result.output
-    # Helpful next step points at SETUP.md, not the old "run dojo task generate"
+    # Helpful next step points at SETUP.md and the new command.
     assert "SETUP.md" in result.output
-    assert "dojo task setup" in result.output
+    assert "dojo domain setup" in result.output

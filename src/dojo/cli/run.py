@@ -125,10 +125,7 @@ async def _run_async(
             )
         except TaskNotReadyError as e:
             console.print(f"[red]✗ task not ready:[/red] {e}")
-            console.print(
-                "\n  fix: [bold]dojo task generate[/bold] then "
-                "[bold]dojo task freeze[/bold] (or `dojo task setup` to do both)."
-            )
+            console.print("\n  fix: run [bold]dojo domain setup[/bold].")
             raise typer.Exit(code=EXIT_TASK_NOT_READY) from e
         except Exception as e:
             console.print(f"[red]failed to start run:[/red] {e}")

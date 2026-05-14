@@ -1,7 +1,8 @@
-"""Shared lifecycle orchestrator used by both `dojo init` and `dojo onboard`.
+"""Shared lifecycle helpers used by `dojo onboard`.
 
 Encapsulates the "create a Domain + run WorkspaceService.setup + create a
-Task" sequence so both CLI entry points stay in lockstep.
+Task" sequence and the config-patching helper, so the CLI entrypoint stays
+thin.
 
 This module deliberately has no Typer / console dependency — callers wrap
 its calls in their own status spinners and error rendering.
@@ -12,11 +13,23 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from dojo.core.domain import Domain, DomainStatus, Workspace, WorkspaceSource
 from dojo.core.task import Task, TaskType
 from dojo.runtime.lab import LabEnvironment
 from dojo.runtime.task_service import TaskService
 from dojo.runtime.workspace_service import WorkspaceService
+
+
+def patch_config(config_path: Path, *, tracking: str | None, agent_backend: str | None) -> None:
+    """Patch tracking backend / agent backend in the YAML config."""
+    data = yaml.safe_load(config_path.read_text()) or {}
+    if tracking:
+        data.setdefault("tracking", {})["backend"] = tracking
+    if agent_backend:
+        data.setdefault("agent", {})["backend"] = agent_backend
+    config_path.write_text(yaml.safe_dump(data, sort_keys=True))
 
 
 def build_workspace_from_arg(arg: str) -> Workspace | None:

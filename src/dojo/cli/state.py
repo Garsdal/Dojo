@@ -106,7 +106,7 @@ async def resolve_domain(
     domain_id = get_current_domain_id(base_dir)
     if domain_id is None:
         raise CLIStateError(
-            "No current domain is set. Run `dojo init` to create one, "
+            "No current domain is set. Run `dojo onboard` to create one, "
             "or `dojo domain use <name>` to switch."
         )
     domain = await lab.domain_store.load(domain_id)

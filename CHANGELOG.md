@@ -13,6 +13,30 @@ for the release workflow.
 
 ## [Unreleased]
 
+## [v0.0.21] - 2026-05-14
+
+### Agent prompts
+
+(none in this release)
+
+### Removed
+
+- **`dojo task` namespace** — `dojo task {setup, generate, freeze, unfreeze, show}` are all deleted. Use `dojo domain setup` (one-shot generate+verify+freeze), `dojo domain unfreeze`, and `dojo domain show` instead. The `TaskService` Python API is unchanged. (#24)
+- **`dojo init`** — deleted. Use `dojo onboard` (interactive) or `dojo onboard --non-interactive --name X` (scripted). The latter replicates the old init flow: write config, create domain, scaffold PROGRAM.md + SETUP.md, exit without generating tools. (#24)
+- **`dojo domain {create, current, scan}`** — deleted. `dojo onboard` is the only way to create a domain. `dojo domain show` (no args) replaces `current`. (#24)
+
+### Added
+
+- **`dojo onboard --non-interactive`** ([src/dojo/cli/onboard.py](src/dojo/cli/onboard.py)) — absorbs the scripted/CI path that used to live in `dojo init`. Requires `--name`; writes default `PROGRAM.md` + `SETUP.md` templates and exits before tool generation. The `dojo-onboard` Claude Code skill uses this path. (#24)
+- **`dojo domain {setup, unfreeze, show}`** ([src/dojo/cli/domain.py](src/dojo/cli/domain.py)) — the new public surface for domain management. `show` prints both domain metadata (name, status, workspace) and task state (frozen?, tools, primary metric), replacing the deleted `dojo domain current` and `dojo task show`. (#24)
+- **"What's a domain?" callout** in [README.md](README.md) and `dojo domain --help` clarifying that a domain corresponds to a frozen `load_data` + `evaluate` contract; multiple experiments live inside one domain. Create a new domain when the data source, target, or metric changes — not per experiment. (#24)
+- **[docs/ARTIFACTS.md](docs/ARTIFACTS.md)** and **[docs/HTTP_API.md](docs/HTTP_API.md)** — content moved out of the README to keep the quickstart short. (#24)
+
+### Changed
+
+- **README trimmed from 296 to ~105 lines** ([README.md](README.md)) — the `dojo-onboard` Claude Code skill is now the headline path; `dojo onboard` is documented as the fallback. Migration notes, artifacts internals, dev-section detail, and the HTTP API table moved to `docs/` or were deleted. (#24)
+- **`dojo-onboard` skill** ([.claude/skills/dojo-onboard/SKILL.md](.claude/skills/dojo-onboard/SKILL.md)) — all command references updated to the new surface (`dojo onboard --non-interactive`, `dojo domain setup`). (#24)
+
 ## [v0.0.20] - 2026-05-11
 
 ### Agent prompts

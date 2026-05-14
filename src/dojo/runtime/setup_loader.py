@@ -1,4 +1,4 @@
-"""SETUP.md loader — task-setup spec for `dojo task setup`.
+"""SETUP.md loader — task-setup spec for `dojo domain setup`.
 
 Read once at task-generation time to drive `load_data` + `evaluate` creation.
 The agent does NOT read this file — it is strictly for the human's data and
@@ -45,8 +45,8 @@ def write_setup(domain: Domain, content: str, *, base_dir: Path | None = None) -
 _DEFAULT_TEMPLATE = """\
 # {name} — task setup
 
-> Used once by `dojo task setup` to generate `load_data` + `evaluate`.
-> Edit, then run `dojo task setup` to (re)generate and freeze.
+> Used once by `dojo domain setup` to generate `load_data` + `evaluate`.
+> Edit, then run `dojo domain setup` to (re)generate and freeze.
 > The agent does NOT read this file at run-time — it sees `PROGRAM.md`.
 
 ## Dataset

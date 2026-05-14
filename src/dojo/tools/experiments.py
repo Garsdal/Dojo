@@ -66,7 +66,7 @@ def create_experiment_tools(lab: LabEnvironment) -> list[ToolDef]:
             return ToolResult(
                 error=(
                     f"Domain {domain_id!r} has no frozen task — "
-                    "freeze it with `dojo task freeze` before running experiments."
+                    "freeze it with `dojo domain setup` before running experiments."
                 )
             )
         if domain.workspace is None or not domain.workspace.path:

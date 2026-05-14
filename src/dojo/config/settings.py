@@ -20,10 +20,10 @@ class SandboxSettings(BaseSettings):
     # / boosted-tree fits on tabular data while still bounding runaway agent
     # code. Override via DOJO_SANDBOX__TIMEOUT or .dojo/config.yaml.
     timeout: float = 300.0
-    # One-off cap for `dojo task setup` verification. Set high because the
+    # One-off cap for `dojo domain setup` verification. Set high because the
     # first call to `load_data` may have to fetch+cache real datasets (parquet,
     # web downloads, etc.); subsequent verifications hit the cache. Override
-    # per invocation with `dojo task setup --timeout`.
+    # per invocation with `dojo domain setup --timeout`.
     verification_timeout: float = 600.0
 
 
@@ -85,7 +85,7 @@ class AgentSettings(BaseSettings):
     auto_continue: bool = True
     permission_mode: str = "acceptEdits"  # Permission mode (backend-specific)
     cwd: str | None = None  # Working directory for code execution
-    # Model used for one-shot tool generation (`dojo task generate` / `setup`).
+    # Model used for one-shot tool generation (`dojo domain setup`).
     # Sonnet 4.6 is a sensible default — strong enough to write correct sklearn
     # tool code, fast enough to keep the spinner short.
     tool_generation_model: str = "claude-sonnet-4-6"
