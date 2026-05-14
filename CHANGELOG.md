@@ -13,6 +13,17 @@ for the release workflow.
 
 ## [Unreleased]
 
+## [v0.0.22] - 2026-05-14
+
+### Agent prompts
+
+(none in this release)
+
+### Added
+
+- **`DockerSandbox` — opt-in containerised execution** ([src/dojo/sandbox/docker.py](src/dojo/sandbox/docker.py)). New `Sandbox` adapter that shells out to `docker run` with `--memory`/`--cpus` limits so an experiment that OOMs kills the container, not the host — the dojo lab keeps running. Enable with `sandbox.backend = "docker"` in `.dojo/config.yaml` (or `DOJO_SANDBOX__BACKEND=docker`). New config knobs on `SandboxSettings`: `memory_limit` (e.g. `"8g"`), `cpu_limit` (e.g. `"4"`), `image` (default `python:3.13-slim`), `network` (default `"bridge"` so experiments can fetch datasets / pull HF models / hit MLflow; set `"none"` for strict isolation), `auto_rebuild_venv` (default `true`). The workspace is bind-mounted at the same absolute path. On first run, a Linux-compatible `.venv-docker/` is built next to the host's `.venv/` from the workspace's `pyproject.toml` (via `uv sync --no-install-project --no-dev`) or `requirements.txt`, so macOS users don't need to set anything up manually — first build takes minutes, subsequent runs are instant. Add `.venv-docker/` to your workspace's `.gitignore`. Container OOMKilled / exec-format-error stderr is prefixed with a clear `[dojo]` marker explaining the fix. (#23)
+- **`_build_sandbox(settings)` dispatch** in [src/dojo/api/deps.py](src/dojo/api/deps.py) mirroring `_build_tracking` / `_build_memory`. Unknown `sandbox.backend` values raise at `build_lab()` time per the project's "no silent fallbacks" rule. (#23)
+
 ## [v0.0.21] - 2026-05-14
 
 ### Agent prompts

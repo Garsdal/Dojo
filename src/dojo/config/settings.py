@@ -26,6 +26,27 @@ class SandboxSettings(BaseSettings):
     # per invocation with `dojo domain setup --timeout`.
     verification_timeout: float = 600.0
 
+    # Which Sandbox implementation to build. "local" (default) runs in a
+    # subprocess on the host; "docker" runs each script inside an ephemeral
+    # container with --memory/--cpus limits so an OOM kills the container,
+    # not the host.
+    backend: str = "local"  # "local" | "docker"
+    # Docker-only knobs. memory_limit/cpu_limit are passed straight to
+    # `docker --memory` / `--cpus`; set to None to leave unlimited (default
+    # docker behaviour). image is the base image used for ephemeral runs.
+    # network defaults to "bridge" so experiments can fetch datasets, pull HF
+    # models, hit MLflow tracking URIs, etc.; set to "none" for strict
+    # no-network sandboxing. auto_rebuild_venv controls whether a sibling
+    # `.venv-docker/` is built (once) from the workspace's pyproject.toml or
+    # requirements.txt when the caller passes a host-built `.venv/bin/python`
+    # path — this is how macOS users get a Linux-compatible venv without
+    # manual setup.
+    memory_limit: str | None = None  # e.g. "8g"
+    cpu_limit: str | None = None  # e.g. "4"
+    image: str = "python:3.13-slim"
+    network: str = "bridge"  # "bridge" | "none" | named network
+    auto_rebuild_venv: bool = True
+
 
 class StorageSettings(BaseSettings):
     """Storage configuration."""

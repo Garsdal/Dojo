@@ -3,7 +3,15 @@
 import pytest
 
 from dojo.api.deps import build_lab
-from dojo.config.settings import MemorySettings, Settings, StorageSettings, TrackingSettings
+from dojo.config.settings import (
+    MemorySettings,
+    SandboxSettings,
+    Settings,
+    StorageSettings,
+    TrackingSettings,
+)
+from dojo.sandbox.docker import DockerSandbox
+from dojo.sandbox.local import LocalSandbox
 from dojo.storage.local import LocalMemoryStore
 from dojo.tracking.file_tracker import FileTracker
 from dojo.tracking.noop_tracker import NoopTracker
@@ -64,4 +72,46 @@ def test_build_lab_unknown_memory_backend(tmp_path) -> None:
         memory=MemorySettings(backend="unknown"),
     )
     with pytest.raises(ValueError, match="Unknown memory backend"):
+        build_lab(settings)
+
+
+def test_build_lab_local_sandbox_default(tmp_path) -> None:
+    settings = Settings(
+        storage=StorageSettings(base_dir=tmp_path / ".dojo"),
+        tracking=TrackingSettings(backend="file"),
+        memory=MemorySettings(backend="local"),
+    )
+    lab = build_lab(settings)
+    assert isinstance(lab.sandbox, LocalSandbox)
+
+
+def test_build_lab_docker_sandbox(tmp_path) -> None:
+    settings = Settings(
+        storage=StorageSettings(base_dir=tmp_path / ".dojo"),
+        tracking=TrackingSettings(backend="file"),
+        memory=MemorySettings(backend="local"),
+        sandbox=SandboxSettings(
+            backend="docker",
+            image="python:3.13-slim",
+            memory_limit="4g",
+            cpu_limit="2",
+            network="none",
+        ),
+    )
+    lab = build_lab(settings)
+    assert isinstance(lab.sandbox, DockerSandbox)
+    assert lab.sandbox.image == "python:3.13-slim"
+    assert lab.sandbox.memory_limit == "4g"
+    assert lab.sandbox.cpu_limit == "2"
+    assert lab.sandbox.network == "none"
+
+
+def test_build_lab_unknown_sandbox_backend(tmp_path) -> None:
+    settings = Settings(
+        storage=StorageSettings(base_dir=tmp_path / ".dojo"),
+        tracking=TrackingSettings(backend="file"),
+        memory=MemorySettings(backend="local"),
+        sandbox=SandboxSettings(backend="bogus"),
+    )
+    with pytest.raises(ValueError, match="Unknown sandbox backend"):
         build_lab(settings)

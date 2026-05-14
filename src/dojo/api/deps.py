@@ -9,6 +9,7 @@ from dojo.config.settings import Settings
 from dojo.interfaces.knowledge_link_store import KnowledgeLinkStore
 from dojo.interfaces.knowledge_linker import KnowledgeLinker
 from dojo.interfaces.memory_store import MemoryStore
+from dojo.interfaces.sandbox import Sandbox
 from dojo.interfaces.tracking import TrackingConnector
 from dojo.runtime.keyword_linker import KeywordKnowledgeLinker
 from dojo.runtime.lab import LabEnvironment
@@ -59,6 +60,44 @@ def _build_tracking(settings: Settings) -> TrackingConnector:
         return FileTracker(base_dir=base)
 
     raise ValueError(f"Unknown tracking backend: {backend!r}")
+
+
+def _build_sandbox(settings: Settings) -> Sandbox:
+    """Build sandbox from settings.
+
+    `local` runs each script in a host subprocess; `docker` runs it inside an
+    ephemeral container with `--memory`/`--cpus` limits so an OOM kills the
+    container, not the host. Per CLAUDE.md "No silent fallbacks", unknown
+    backends fail at `build_lab()` time.
+    """
+    backend = settings.sandbox.backend
+
+    if backend == "local":
+        logger.info("sandbox_backend", backend="local", timeout=settings.sandbox.timeout)
+        return LocalSandbox(timeout=settings.sandbox.timeout)
+
+    if backend == "docker":
+        from dojo.sandbox.docker import DockerSandbox
+
+        logger.info(
+            "sandbox_backend",
+            backend="docker",
+            image=settings.sandbox.image,
+            memory_limit=settings.sandbox.memory_limit,
+            cpu_limit=settings.sandbox.cpu_limit,
+            network=settings.sandbox.network,
+            auto_rebuild_venv=settings.sandbox.auto_rebuild_venv,
+        )
+        return DockerSandbox(
+            image=settings.sandbox.image,
+            timeout=settings.sandbox.timeout,
+            memory_limit=settings.sandbox.memory_limit,
+            cpu_limit=settings.sandbox.cpu_limit,
+            network=settings.sandbox.network,
+            auto_rebuild_venv=settings.sandbox.auto_rebuild_venv,
+        )
+
+    raise ValueError(f"Unknown sandbox backend: {backend!r}")
 
 
 def _build_memory(settings: Settings) -> MemoryStore:
@@ -123,7 +162,7 @@ def build_lab(settings: Settings) -> LabEnvironment:
 
     return LabEnvironment(
         compute=LocalCompute(),
-        sandbox=LocalSandbox(timeout=settings.sandbox.timeout),
+        sandbox=_build_sandbox(settings),
         experiment_store=LocalExperimentStore(base_dir=base / "experiments"),
         artifact_store=LocalArtifactStore(base_dir=base / "artifacts"),
         memory_store=memory_store,
