@@ -164,6 +164,30 @@ Don't invoke `dojo run` yourself — it's a long-running interactive command and
 - User wants to see what's frozen: `dojo domain show`.
 - User wants to swap the agent backend: edit `.dojo/config.yaml` (`agent.backend: claude | stub`).
 
+## Optional: Docker sandbox
+
+If the user mentions experiments that risk OOM-ing their machine, or asks for stronger isolation around training scripts, suggest the Docker sandbox. It runs each experiment inside an ephemeral `docker run` with `--memory` and `--cpus` limits — an OOM kills the container, not the host.
+
+Trade-off worth surfacing before they opt in:
+
+- **Pro:** containment. Bad experiments stop being a laptop-stability problem.
+- **Con:** first `dojo domain setup` is slow — it pulls the image and builds a Linux-compatible `.venv-docker/` from the workspace's `pyproject.toml` or `requirements.txt`. Subsequent runs are instant.
+
+To enable, edit `.dojo/config.yaml` *before* running `dojo domain setup`:
+
+```yaml
+sandbox:
+  backend: docker            # default "local"
+  image: python:3.11-slim    # default — matches Dojo's minimum supported Python
+  memory_limit: 8g           # optional
+  cpu_limit: "4"             # optional
+  network: bridge            # default — use "none" for strict isolation
+```
+
+Then run `dojo domain setup` as usual — the setup step builds `.venv-docker/` for you. Tell the user to add `.venv-docker/` to their `.gitignore`. To force a rebuild later (e.g. after dep changes), delete the directory and re-run `dojo domain setup`.
+
+Pre-flight check before recommending: confirm `docker info` returns exit 0. If Docker isn't running, point them at `LocalSandbox` (the default) and move on — don't try to set up a backend they can't use today.
+
 ## Why a skill instead of more CLI flags
 
 Three reasons the conversational form is right for this:

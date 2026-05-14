@@ -44,9 +44,10 @@ dojo run                            # after the skill finishes
 ```
 
 Prerequisites:
-- Python 3.13+
+- Python 3.11+
 - [Claude Code](https://claude.com/claude-code) installed (for the skill path)
 - The `claude` CLI logged in — Dojo shells out to it for agent runs (no `ANTHROPIC_API_KEY` needed)
+- (Optional) Docker, if you want experiments to run inside a containerised sandbox — see [Run experiments inside Docker](#run-experiments-inside-docker)
 
 ## Fallback — `dojo onboard` (no Claude Code)
 
@@ -83,6 +84,26 @@ tracking:
 ```
 
 Env-var overrides use **double underscore** for nested fields: `DOJO_AGENT__BACKEND=stub`, `DOJO_TRACKING__BACKEND=mlflow`.
+
+## Run experiments inside Docker
+
+By default, the agent's experiment scripts run in a host subprocess (`LocalSandbox`). For runaway training jobs that might OOM your laptop, opt into the containerised sandbox so each script runs inside an ephemeral `docker run` with `--memory` and `--cpus` limits — an OOM kills the container, not the host.
+
+```yaml
+# .dojo/config.yaml
+sandbox:
+  backend: docker           # default "local"
+  image: python:3.11-slim   # default — matches Dojo's minimum supported Python
+  memory_limit: 8g          # optional; passed to `docker --memory`
+  cpu_limit: "4"            # optional; passed to `docker --cpus`
+  network: bridge           # default — set "none" for strict isolation
+```
+
+Or via env vars: `DOJO_SANDBOX__BACKEND=docker DOJO_SANDBOX__MEMORY_LIMIT=8g`.
+
+When docker is selected, `dojo domain setup` builds a sibling `.venv-docker/` next to your host `.venv/` from your `pyproject.toml` or `requirements.txt`, so macOS users don't have to manage a Linux-compatible venv by hand. **First setup pulls the image + installs deps (can take minutes); subsequent runs are instant.** Add `.venv-docker/` to your `.gitignore`. Delete the directory and re-run `dojo domain setup` to force a rebuild after dep changes.
+
+Caveats: `python:3.11-slim` doesn't ship build tools — if your deps need native compilation (e.g. `psycopg2` from source), point `sandbox.image` at a beefier image or one you've baked the deps into. `OOMKilled` (exit 137) and `exec format error` (exit 126) responses are tagged with a `[dojo]` marker in stderr explaining the fix.
 
 ## Pointers
 

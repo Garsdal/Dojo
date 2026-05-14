@@ -76,7 +76,7 @@ def test_onboard_preset_runs_end_to_end(onboard_dir: Path):
     #   1. (footgun check — silent in tmp_path)
     #   2. (existing .dojo check — silent because dir doesn't exist yet)
     #   3. (workspace preview — no prompt)
-    #   4. config: agent backend / tracking / linker — all defaults
+    #   4. config: agent backend / tracking / linker / sandbox — all defaults
     #   5. domain name (default = tmp basename) + description
     # Each "\n" accepts the default for one prompt. Order matters.
     inputs = "\n".join(
@@ -84,6 +84,7 @@ def test_onboard_preset_runs_end_to_end(onboard_dir: Path):
             "claude",  # agent backend (default)
             "file",  # tracking backend (default)
             "keyword",  # linker (default)
+            "local",  # sandbox backend (default)
             "",  # domain name (use default — cwd basename)
             "",  # description
             "",  # extra newline buffer
@@ -187,6 +188,7 @@ def test_onboard_custom_path_skip_stops_before_tool_gen(onboard_dir: Path):
             "claude",  # agent backend
             "file",  # tracking
             "keyword",  # linker
+            "local",  # sandbox
             "my-research",  # domain name
             "",  # description
             "custom",  # decline preset side-prompt
@@ -242,6 +244,7 @@ def test_onboard_custom_path_editor_writes_edited_content(
             "claude",  # agent backend
             "file",  # tracking
             "keyword",  # linker
+            "local",  # sandbox
             "my-research",  # domain name
             "",  # description
             "custom",  # decline preset side-prompt
@@ -281,6 +284,7 @@ def test_onboard_custom_path_editor_falls_back_when_edit_returns_none(
             "claude",
             "file",
             "keyword",
+            "local",
             "my-research",
             "",
             "custom",
