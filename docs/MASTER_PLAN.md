@@ -411,13 +411,13 @@ The ports & adapters layout stays. The new pieces fit cleanly into existing laye
 ┌──────────────────────────────▼───────────────────────────────┐
 │ Interfaces (ABCs)                                             │
 │ DomainStore · ExperimentStore · MemoryStore · TrackingConnector│
-│ KnowledgeLinkStore · KnowledgeLinker · ComputeBackend · Sandbox│
+│ KnowledgeLinkStore · KnowledgeLinker · Sandbox · AgentBackend │
 └──────────────────────────────┬───────────────────────────────┘
                                │
 ┌──────────────────────────────▼───────────────────────────────┐
 │ Adapters                                                      │
-│ Local (JSON) · MLflow · File tracker · Local sandbox · Local  │
-│ compute · Claude / Stub agent backends                        │
+│ Local (JSON) · MLflow · File tracker · Local + Docker sandbox │
+│ · Claude / Stub agent backends                                │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -444,7 +444,7 @@ The ports & adapters layout stays. The new pieces fit cleanly into existing laye
 
 ### What stays the same
 
-`Workspace`, `WorkspaceService`, `WorkspaceScanner`, `ExperimentService`, `KnowledgeLinker` (keyword-overlap), `KnowledgeLink`, all `TrackingConnector` adapters, all `Sandbox` and `ComputeBackend` adapters, all `MemoryStore` adapters, the SSE event mechanism, the entire ULID + structlog + ruff convention layer.
+`Workspace`, `WorkspaceService`, `WorkspaceScanner`, `ExperimentService`, `KnowledgeLinker` (keyword-overlap), `KnowledgeLink`, all `TrackingConnector` adapters, all `Sandbox` adapters, all `MemoryStore` adapters, the SSE event mechanism, the entire ULID + structlog + ruff convention layer.
 
 ---
 

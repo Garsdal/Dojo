@@ -6,15 +6,14 @@ runaway loops from saturating every core. Select via
 ``DOJO_SANDBOX__BACKEND=docker`` or ``sandbox.backend = "docker"`` in
 ``.dojo/config.yaml``.
 
-Mirrors ``LocalSandbox``'s shape so the diff is reviewable — same arguments,
-same ``ExecutionResult``, same script-write/cleanup dance — but shells out to
-``docker run`` with the workspace bind-mounted at the same absolute path.
+Mirrors ``LocalSandbox``'s shape — same arguments, same ``ExecutionResult``,
+same script-write/cleanup dance — but shells out to ``docker run`` with the
+workspace bind-mounted at the same absolute path.
 
-The workspace's ``.venv/bin/python`` from the host won't run inside a Linux
-container on macOS (exec-format-error), so when ``auto_rebuild_venv`` is on we
-build a sibling ``.venv-docker/`` once per workspace + image and rewrite
-``python_path`` to point at it. Delete ``.venv-docker/`` to force a rebuild
-(e.g. after dep changes).
+Producing a Linux-compatible interpreter is a *workspace* concern, not a
+sandbox concern. ``WorkspaceService`` builds ``.venv-docker/`` when the docker
+backend is selected and sets ``workspace.python_path`` accordingly; this
+sandbox just runs whatever python it's handed.
 """
 
 import asyncio
@@ -31,11 +30,9 @@ from dojo.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Suffix used for the in-container venv built next to the host's `.venv/`.
-_DOCKER_VENV_DIRNAME = ".venv-docker"
-
-# Marker prepended to stderr when the container is OOMKilled. Exit code 137 is
-# SIGKILL (128 + 9), which docker uses for the cgroup OOM killer.
+# Exit code 137 is SIGKILL (128 + 9), which docker uses for the cgroup OOM
+# killer; 126 is "command found but not executable" — most commonly the
+# host-built venv hitting `exec format error` inside the Linux container.
 _OOM_EXIT_CODE = 137
 _EXEC_FORMAT_EXIT_CODE = 126
 
@@ -46,12 +43,11 @@ class DockerSandbox(Sandbox):
     def __init__(
         self,
         *,
-        image: str = "python:3.13-slim",
+        image: str = "python:3.11-slim",
         timeout: float = 300.0,
         memory_limit: str | None = None,
         cpu_limit: str | None = None,
         network: str = "bridge",
-        auto_rebuild_venv: bool = True,
         docker_bin: str = "docker",
     ) -> None:
         self.image = image
@@ -59,15 +55,9 @@ class DockerSandbox(Sandbox):
         self.memory_limit = memory_limit
         self.cpu_limit = cpu_limit
         self.network = network
-        self.auto_rebuild_venv = auto_rebuild_venv
         self.docker_bin = docker_bin
         # Track in-flight container names so cleanup() can `docker kill` them.
         self._active_containers: set[str] = set()
-        # Cache resolved `.venv-docker/bin/python` paths per cwd so back-to-back
-        # experiments in the same run don't re-shell-out to docker. The on-disk
-        # check inside `_ensure_docker_venv` is the cross-process source of
-        # truth; this is a fast-path for the common single-process case.
-        self._venv_cache: dict[str, str] = {}
 
     async def execute(
         self,
@@ -87,12 +77,7 @@ class DockerSandbox(Sandbox):
         effective_timeout = timeout if timeout is not None else self.timeout
         work_dir = cwd or tempfile.mkdtemp()
         effective_script_dir = script_dir or work_dir
-
-        # Pick the python executable to run inside the container. The
-        # auto-rebuild path swaps a host-built `.venv/bin/python` for a
-        # Linux-compatible `.venv-docker/bin/python`; otherwise we pass the
-        # path verbatim (Linux host, or user-managed docker venv).
-        effective_python = await self._resolve_python_path(python_path, work_dir)
+        effective_python = python_path or "python"
 
         script_path = Path(effective_script_dir) / _safe_script_filename(name, code)
         script_path.write_text(code)
@@ -121,9 +106,8 @@ class DockerSandbox(Sandbox):
                     proc.communicate(), timeout=effective_timeout
                 )
             except TimeoutError:
-                # Best-effort kill. If `docker kill` fails (container already
-                # gone), swallow — the --rm flag and finally block will clear
-                # state either way.
+                # Best-effort kill. --rm + the finally block clear state
+                # either way.
                 await self._docker_kill(container_name)
                 duration_ms = (time.monotonic() - start) * 1000
                 return ExecutionResult(
@@ -144,15 +128,17 @@ class DockerSandbox(Sandbox):
                     f"Memory limit was {limit_str}.\n" + stderr_str
                 )
             elif exit_code == _EXEC_FORMAT_EXIT_CODE and "exec format error" in stderr_str:
-                # The user disabled auto_rebuild_venv (or pointed at a non-venv
-                # binary) and the host-built python won't run in the Linux
-                # container. Surface a clear fix.
+                # The configured python_path won't run inside the Linux
+                # container (typically a host-built `.venv/` from macOS).
+                # WorkspaceService should have built `.venv-docker/` when the
+                # docker backend was selected — flag the gap so users see it.
                 stderr_str = (
                     "[dojo] python binary inside the container failed with "
-                    "'exec format error'. Likely cause: a host-built `.venv/` "
-                    "is being run inside a Linux container. Enable "
-                    "`sandbox.auto_rebuild_venv = true` or use a `python_path` "
-                    "that exists inside the image.\n" + stderr_str
+                    "'exec format error'. The configured python_path is not "
+                    "runnable in the container image. Re-run `dojo domain "
+                    'setup` with `sandbox.backend = "docker"` so '
+                    "WorkspaceService builds a Linux-compatible "
+                    "`.venv-docker/` for this workspace.\n" + stderr_str
                 )
 
             return ExecutionResult(
@@ -170,9 +156,9 @@ class DockerSandbox(Sandbox):
 
         Not on the hot path — workspaces own their own venvs at run time. The
         recommended path for docker users is to bake deps into a custom
-        ``image`` or rely on the ``auto_rebuild_venv`` flow. This method exists
-        to satisfy the interface and to give a usable smoke install during
-        ad-hoc debugging.
+        ``image`` or let ``WorkspaceService`` build ``.venv-docker/``. This
+        method exists to satisfy the interface and to give a usable smoke
+        install during ad-hoc debugging.
         """
         argv = [
             self.docker_bin,
@@ -249,106 +235,14 @@ class DockerSandbox(Sandbox):
         # On Linux the bind-mount preserves UID/GID, so we pass --user to keep
         # files written into the workspace owned by the host user. On macOS
         # Docker Desktop's VM handles this remapping automatically, so passing
-        # --user there breaks the venv-rebuild step (the host UID has no
-        # passwd entry inside the container).
+        # --user there breaks the venv build (the host UID has no passwd
+        # entry inside the container).
         if sys.platform == "linux":
             argv.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
 
         argv.append(self.image)
         argv.extend([python_exec, script_path])
         return argv
-
-    async def _resolve_python_path(self, python_path: str | None, cwd: str) -> str:
-        """Pick the python executable to invoke inside the container.
-
-        - None → container's system "python".
-        - Host-built `.venv/bin/python` + auto_rebuild_venv on → swap for
-          `.venv-docker/bin/python`, building it on first call.
-        - Anything else → pass through verbatim. Caller knows what they're doing.
-        """
-        if python_path is None:
-            return "python"
-
-        if self.auto_rebuild_venv and _looks_like_host_venv_python(python_path, cwd):
-            try:
-                return await self._ensure_docker_venv(cwd)
-            except DockerVenvBuildError as e:
-                # Re-raise as the same error type — caller (execute) lets it
-                # bubble up to the runner, where it surfaces in the experiment
-                # result. Silent fallback to `python_path` would re-introduce
-                # the exec-format-error UX we're trying to fix.
-                raise e
-
-        return python_path
-
-    async def _ensure_docker_venv(self, cwd: str) -> str:
-        """Lazily build `<cwd>/.venv-docker/` inside the configured image.
-
-        Returns the path to `.venv-docker/bin/python`. Idempotent: subsequent
-        calls reuse the on-disk venv (and the in-memory cache).
-        """
-        cached = self._venv_cache.get(cwd)
-        if cached and Path(cached).exists():
-            return cached
-
-        venv_root = Path(cwd) / _DOCKER_VENV_DIRNAME
-        venv_python = venv_root / "bin" / "python"
-        if venv_python.exists():
-            self._venv_cache[cwd] = str(venv_python)
-            return str(venv_python)
-
-        setup_cmd = _venv_setup_cmd(cwd)
-        logger.info(
-            "docker_venv_build_start",
-            cwd=cwd,
-            image=self.image,
-            target=str(venv_root),
-        )
-
-        argv = [
-            self.docker_bin,
-            "run",
-            "--rm",
-            "-v",
-            f"{cwd}:{cwd}",
-            "-w",
-            cwd,
-            self.image,
-            "bash",
-            "-lc",
-            setup_cmd,
-        ]
-        proc = await asyncio.create_subprocess_exec(
-            *argv,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout_b, stderr_b = await proc.communicate()
-        stdout = stdout_b.decode()
-        stderr = stderr_b.decode()
-
-        if proc.returncode != 0:
-            logger.warning(
-                "docker_venv_build_failed",
-                cwd=cwd,
-                image=self.image,
-                exit_code=proc.returncode,
-                stderr_tail=stderr[-500:],
-            )
-            raise DockerVenvBuildError(
-                f"Failed to build {venv_root} inside {self.image} "
-                f"(exit code {proc.returncode}). stderr tail:\n{stderr[-500:]}"
-            )
-
-        if not venv_python.exists():
-            raise DockerVenvBuildError(
-                f"Venv build reported success but {venv_python} is missing. "
-                f"stdout tail:\n{stdout[-500:]}"
-            )
-
-        logger.info("docker_venv_build_done", cwd=cwd, python=str(venv_python))
-        self._venv_cache[cwd] = str(venv_python)
-        return str(venv_python)
 
     async def _docker_kill(self, container_name: str) -> None:
         try:
@@ -365,10 +259,6 @@ class DockerSandbox(Sandbox):
             return
 
 
-class DockerVenvBuildError(RuntimeError):
-    """Raised when building `.venv-docker/` inside the container fails."""
-
-
 def _is_subpath(child: str, parent: str) -> bool:
     try:
         Path(child).resolve().relative_to(Path(parent).resolve())
@@ -377,48 +267,4 @@ def _is_subpath(child: str, parent: str) -> bool:
         return False
 
 
-def _looks_like_host_venv_python(python_path: str, cwd: str) -> bool:
-    """True iff `python_path` points at `<cwd>/.venv/bin/python` (or the cwd
-    we're given via the workspace dispatch).
-
-    The check is narrow on purpose: we only want to rewrite paths we know we
-    created via the host's WorkspaceService. Anything else passes through.
-    """
-    p = Path(python_path)
-    # Match `<cwd>/.venv/bin/python` (and the rare Windows-y variants) only
-    # when the path lives inside `cwd`.
-    try:
-        rel = p.resolve().relative_to(Path(cwd).resolve())
-    except ValueError:
-        return False
-    parts = rel.parts
-    return len(parts) >= 3 and parts[0] == ".venv" and parts[-1] in {"python", "python3"}
-
-
-def _venv_setup_cmd(cwd: str) -> str:
-    """Pick the right install flow for the workspace's dep manifest."""
-    cwd_path = Path(cwd)
-    if (cwd_path / "pyproject.toml").exists():
-        # uv flow. --no-install-project skips building the workspace's own
-        # package (may need native deps the slim image doesn't ship). --no-dev
-        # skips dev extras. Failures here surface to the user; we don't
-        # silently fall back.
-        return (
-            "set -euo pipefail; "
-            "pip install --quiet uv && "
-            f"uv venv {_DOCKER_VENV_DIRNAME} && "
-            f'VIRTUAL_ENV="$PWD/{_DOCKER_VENV_DIRNAME}" '
-            "uv sync --active --no-install-project --no-dev"
-        )
-    if (cwd_path / "requirements.txt").exists():
-        return (
-            "set -euo pipefail; "
-            f"python -m venv {_DOCKER_VENV_DIRNAME} && "
-            f"{_DOCKER_VENV_DIRNAME}/bin/pip install --quiet -r requirements.txt"
-        )
-    # Bare venv. The user has no manifest — we still build an empty venv so
-    # the resulting python is Linux-compatible.
-    return f"set -euo pipefail; python -m venv {_DOCKER_VENV_DIRNAME}"
-
-
-__all__ = ["DockerSandbox", "DockerVenvBuildError"]
+__all__ = ["DockerSandbox"]

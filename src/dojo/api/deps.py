@@ -4,7 +4,6 @@ from pathlib import Path
 
 from dojo.agents.backend import AgentBackend
 from dojo.agents.factory import create_agent_backend
-from dojo.compute.local import LocalCompute
 from dojo.config.settings import Settings
 from dojo.interfaces.knowledge_link_store import KnowledgeLinkStore
 from dojo.interfaces.knowledge_linker import KnowledgeLinker
@@ -86,7 +85,6 @@ def _build_sandbox(settings: Settings) -> Sandbox:
             memory_limit=settings.sandbox.memory_limit,
             cpu_limit=settings.sandbox.cpu_limit,
             network=settings.sandbox.network,
-            auto_rebuild_venv=settings.sandbox.auto_rebuild_venv,
         )
         return DockerSandbox(
             image=settings.sandbox.image,
@@ -94,7 +92,6 @@ def _build_sandbox(settings: Settings) -> Sandbox:
             memory_limit=settings.sandbox.memory_limit,
             cpu_limit=settings.sandbox.cpu_limit,
             network=settings.sandbox.network,
-            auto_rebuild_venv=settings.sandbox.auto_rebuild_venv,
         )
 
     raise ValueError(f"Unknown sandbox backend: {backend!r}")
@@ -161,7 +158,6 @@ def build_lab(settings: Settings) -> LabEnvironment:
     knowledge_linker = _build_linker(settings, memory_store, knowledge_link_store)
 
     return LabEnvironment(
-        compute=LocalCompute(),
         sandbox=_build_sandbox(settings),
         experiment_store=LocalExperimentStore(base_dir=base / "experiments"),
         artifact_store=LocalArtifactStore(base_dir=base / "artifacts"),

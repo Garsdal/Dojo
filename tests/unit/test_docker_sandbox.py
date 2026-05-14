@@ -1,8 +1,12 @@
-"""Unit tests for DockerSandbox — argv construction, OOM marker, cleanup, venv path.
+"""Unit tests for DockerSandbox — argv construction, OOM marker, cleanup.
 
 These tests stub out `asyncio.create_subprocess_exec` so they run without a
 real Docker daemon. Live integration coverage lives in
 [tests/integration/test_docker_sandbox_integration.py].
+
+The venv-rebuild flow is a *workspace* concern and is tested in
+[tests/unit/test_workspace_service_docker_venv.py]; the sandbox itself just
+runs whatever `python_path` it's handed.
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from dojo.sandbox.docker import DockerSandbox, DockerVenvBuildError
+from dojo.sandbox.docker import DockerSandbox
 
 
 class _FakeProc:
@@ -55,11 +59,6 @@ class _Capture:
 
 @pytest.fixture
 def argv_capture(monkeypatch: pytest.MonkeyPatch) -> _Capture:
-    """Capture every `docker` argv passed through `asyncio.create_subprocess_exec`.
-
-    Defaults to a `(stdout=b"", stderr=b"", returncode=0)` fake. Tests can swap
-    the proc factory via `argv_capture.set_factory(...)`.
-    """
     cap = _Capture()
     monkeypatch.setattr(asyncio, "create_subprocess_exec", cap)
     return cap
@@ -69,7 +68,7 @@ async def test_argv_contains_resource_limits_and_mount(
     argv_capture: _Capture, tmp_path: Path
 ) -> None:
     sandbox = DockerSandbox(
-        image="python:3.13-slim",
+        image="python:3.11-slim",
         memory_limit="8g",
         cpu_limit="4",
         network="bridge",
@@ -88,7 +87,16 @@ async def test_argv_contains_resource_limits_and_mount(
     assert "-v" in argv and f"{tmp_path}:{tmp_path}" in argv
     assert "-w" in argv and argv[argv.index("-w") + 1] == str(tmp_path)
     assert "-e" in argv and "PYTHONUNBUFFERED=1" in argv
-    assert "python:3.13-slim" in argv
+    assert "python:3.11-slim" in argv
+
+
+async def test_default_image_is_311_slim(argv_capture: _Capture, tmp_path: Path) -> None:
+    """`python:3.11-slim` matches the project's minimum supported Python; a
+    workspace that targets 3.11+ never sees a newer-than-promised container
+    Python."""
+    sandbox = DockerSandbox()
+    await sandbox.execute("print('x')", cwd=str(tmp_path))
+    assert "python:3.11-slim" in argv_capture.calls[0]
 
 
 async def test_argv_omits_memory_swap_when_no_memory_limit(
@@ -120,19 +128,23 @@ async def test_argv_forwards_env_vars(argv_capture: _Capture, tmp_path: Path) ->
     assert "FOO=bar" in argv
 
 
-async def test_argv_uses_explicit_python_path_when_not_a_host_venv(
-    argv_capture: _Capture, tmp_path: Path
-) -> None:
+async def test_argv_passes_python_path_verbatim(argv_capture: _Capture, tmp_path: Path) -> None:
+    """Sandbox no longer rewrites python_path — venv concerns live in
+    WorkspaceService."""
     sandbox = DockerSandbox()
-    await sandbox.execute(
-        "print('x')",
-        cwd=str(tmp_path),
-        python_path="/usr/local/bin/python3.11",
-    )
+    venv_python = str(tmp_path / ".venv-docker" / "bin" / "python")
+    await sandbox.execute("print('x')", cwd=str(tmp_path), python_path=venv_python)
     argv = argv_capture.calls[0]
-    # Image is at a known index — the python path immediately follows.
-    img_idx = argv.index("python:3.13-slim")
-    assert argv[img_idx + 1] == "/usr/local/bin/python3.11"
+    img_idx = argv.index("python:3.11-slim")
+    assert argv[img_idx + 1] == venv_python
+
+
+async def test_argv_default_python_when_none(argv_capture: _Capture, tmp_path: Path) -> None:
+    sandbox = DockerSandbox()
+    await sandbox.execute("print('x')", cwd=str(tmp_path))
+    argv = argv_capture.calls[0]
+    img_idx = argv.index("python:3.11-slim")
+    assert argv[img_idx + 1] == "python"
 
 
 async def test_oom_exit_code_prepends_marker(argv_capture: _Capture, tmp_path: Path) -> None:
@@ -147,19 +159,22 @@ async def test_oom_exit_code_prepends_marker(argv_capture: _Capture, tmp_path: P
 async def test_exec_format_error_surfaces_clear_message(
     argv_capture: _Capture, tmp_path: Path
 ) -> None:
+    """A host-built venv leaking into the container should surface a clear
+    fix-it message pointing at `dojo domain setup`."""
     argv_capture.set_factory(
         lambda argv: _FakeProc(
             stderr=b"exec /work/.venv/bin/python: exec format error\n",
             returncode=126,
         )
     )
-    sandbox = DockerSandbox(auto_rebuild_venv=False)
+    sandbox = DockerSandbox()
     result = await sandbox.execute(
         "print('x')",
         cwd=str(tmp_path),
-        python_path="/usr/local/bin/python",
+        python_path="/work/.venv/bin/python",
     )
-    assert "auto_rebuild_venv" in result.stderr
+    assert "dojo domain setup" in result.stderr
+    assert ".venv-docker" in result.stderr
 
 
 async def test_timeout_kills_container_and_returns_minus_one(
@@ -169,7 +184,6 @@ async def test_timeout_kills_container_and_returns_minus_one(
 
     async def fake_exec(*argv: str, **_: Any) -> _FakeProc:
         invocations.append(list(argv))
-        # The first call is `docker run` and hangs; the second is the kill.
         if argv[:2] == ("docker", "run"):
             return _FakeProc(hang=True)
         return _FakeProc()
@@ -180,18 +194,14 @@ async def test_timeout_kills_container_and_returns_minus_one(
     result = await sandbox.execute("import time; time.sleep(60)", cwd=str(tmp_path))
     assert result.exit_code == -1
     assert result.stderr == "Execution timed out"
-    # Sanity check: a `docker kill` was issued on timeout.
     kill_calls = [argv for argv in invocations if argv[:2] == ["docker", "kill"]]
     assert len(kill_calls) == 1
-    # The kill target is the same container name that the run had.
     run_call = next(argv for argv in invocations if argv[:2] == ["docker", "run"])
     container_name = run_call[run_call.index("--name") + 1]
     assert container_name == kill_calls[0][2]
 
 
-async def test_cleanup_kills_active_containers(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_cleanup_kills_active_containers(monkeypatch: pytest.MonkeyPatch) -> None:
     invocations: list[list[str]] = []
 
     async def fake_exec(*argv: str, **_: Any) -> _FakeProc:
@@ -212,89 +222,6 @@ async def test_script_cleaned_up_after_run(argv_capture: _Capture, tmp_path: Pat
     sandbox = DockerSandbox()
     await sandbox.execute("print('x')", cwd=str(tmp_path), name="probe")
     assert not (tmp_path / "probe.py").exists()
-
-
-async def test_venv_rebuild_used_when_host_venv_python_passed(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    # Pretend the user has a host `.venv/bin/python` and pyproject.toml.
-    (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\nversion="0"\n')
-    (tmp_path / ".venv" / "bin").mkdir(parents=True)
-    (tmp_path / ".venv" / "bin" / "python").write_text("#!/bin/sh\n")
-
-    invocations: list[list[str]] = []
-
-    async def fake_exec(*argv: str, **_: Any) -> _FakeProc:
-        invocations.append(list(argv))
-        # The venv-rebuild call uses `bash -lc <setup>`. Simulate success by
-        # materialising the `.venv-docker/bin/python` it claims to produce.
-        if "bash" in argv:
-            (tmp_path / ".venv-docker" / "bin").mkdir(parents=True, exist_ok=True)
-            (tmp_path / ".venv-docker" / "bin" / "python").write_text("#!/bin/sh\n")
-        return _FakeProc()
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-
-    sandbox = DockerSandbox()
-    await sandbox.execute(
-        "print('x')",
-        cwd=str(tmp_path),
-        python_path=str(tmp_path / ".venv" / "bin" / "python"),
-    )
-
-    # First call: venv build via `bash -lc`. Second call: the actual run,
-    # with python path rewritten to `.venv-docker/bin/python`.
-    bash_calls = [a for a in invocations if "bash" in a]
-    assert len(bash_calls) == 1
-    run_call = next(a for a in invocations if a[:2] == ["docker", "run"] and "bash" not in a)
-    assert str(tmp_path / ".venv-docker" / "bin" / "python") in run_call
-
-
-async def test_venv_rebuild_failure_raises_clear_error(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\nversion="0"\n')
-    (tmp_path / ".venv" / "bin").mkdir(parents=True)
-    (tmp_path / ".venv" / "bin" / "python").write_text("#!/bin/sh\n")
-
-    async def fake_exec(*argv: str, **_: Any) -> _FakeProc:
-        return _FakeProc(stderr=b"uv: command not found\n", returncode=127)
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-
-    sandbox = DockerSandbox()
-    with pytest.raises(DockerVenvBuildError, match="Failed to build"):
-        await sandbox.execute(
-            "print('x')",
-            cwd=str(tmp_path),
-            python_path=str(tmp_path / ".venv" / "bin" / "python"),
-        )
-
-
-async def test_venv_rebuild_idempotent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\nversion="0"\n')
-    (tmp_path / ".venv" / "bin").mkdir(parents=True)
-    (tmp_path / ".venv" / "bin" / "python").write_text("#!/bin/sh\n")
-    # Pre-existing .venv-docker — the rebuild should not fire.
-    (tmp_path / ".venv-docker" / "bin").mkdir(parents=True)
-    (tmp_path / ".venv-docker" / "bin" / "python").write_text("#!/bin/sh\n")
-
-    invocations: list[list[str]] = []
-
-    async def fake_exec(*argv: str, **_: Any) -> _FakeProc:
-        invocations.append(list(argv))
-        return _FakeProc()
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-
-    sandbox = DockerSandbox()
-    await sandbox.execute(
-        "print('x')",
-        cwd=str(tmp_path),
-        python_path=str(tmp_path / ".venv" / "bin" / "python"),
-    )
-    # No bash setup invocation — we reused the existing `.venv-docker/`.
-    assert not any("bash" in a for a in invocations)
 
 
 async def test_unsupported_language_returns_clear_error(tmp_path: Path) -> None:

@@ -99,7 +99,7 @@ async def create_domain_with_workspace(
         and workspace.source != WorkspaceSource.EMPTY
         and workspace.path
     ):
-        ws_service = WorkspaceService(storage_base_dir)
+        ws_service = WorkspaceService(storage_base_dir, lab.settings.sandbox)
         try:
             updated = await ws_service.setup(domain)
             domain.workspace = updated

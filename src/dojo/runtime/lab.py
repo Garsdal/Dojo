@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dojo.interfaces.artifact_store import ArtifactStore
-from dojo.interfaces.compute import ComputeBackend
 from dojo.interfaces.domain_store import DomainStore
 from dojo.interfaces.experiment_store import ExperimentStore
 from dojo.interfaces.knowledge_link_store import KnowledgeLinkStore
@@ -21,7 +20,6 @@ from dojo.interfaces.tracking import TrackingConnector
 class LabEnvironment:
     """Holds all injected backends — the DI container for Dojo.ml."""
 
-    compute: ComputeBackend
     sandbox: Sandbox
     experiment_store: ExperimentStore
     artifact_store: ArtifactStore

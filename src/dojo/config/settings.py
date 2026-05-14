@@ -33,19 +33,17 @@ class SandboxSettings(BaseSettings):
     backend: str = "local"  # "local" | "docker"
     # Docker-only knobs. memory_limit/cpu_limit are passed straight to
     # `docker --memory` / `--cpus`; set to None to leave unlimited (default
-    # docker behaviour). image is the base image used for ephemeral runs.
+    # docker behaviour). image defaults to python:3.11-slim — the project's
+    # minimum supported Python — so a workspace that targets 3.11+ never sees
+    # a newer-than-promised container Python. Override via the env/config to
+    # match your workspace's Python.
     # network defaults to "bridge" so experiments can fetch datasets, pull HF
     # models, hit MLflow tracking URIs, etc.; set to "none" for strict
-    # no-network sandboxing. auto_rebuild_venv controls whether a sibling
-    # `.venv-docker/` is built (once) from the workspace's pyproject.toml or
-    # requirements.txt when the caller passes a host-built `.venv/bin/python`
-    # path — this is how macOS users get a Linux-compatible venv without
-    # manual setup.
+    # no-network sandboxing.
     memory_limit: str | None = None  # e.g. "8g"
     cpu_limit: str | None = None  # e.g. "4"
-    image: str = "python:3.13-slim"
+    image: str = "python:3.11-slim"
     network: str = "bridge"  # "bridge" | "none" | named network
-    auto_rebuild_venv: bool = True
 
 
 class StorageSettings(BaseSettings):
