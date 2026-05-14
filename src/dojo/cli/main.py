@@ -47,13 +47,11 @@ def start(
 
 # --- Top-level commands ---
 
-from dojo.cli.init import init as _init  # noqa: E402
 from dojo.cli.onboard import onboard as _onboard  # noqa: E402
 from dojo.cli.run import run as _run  # noqa: E402
 from dojo.cli.stop import stop as _stop  # noqa: E402
 
 app.command("onboard")(_onboard)
-app.command("init")(_init)
 app.command("run")(_run)
 app.command("stop")(_stop)
 
@@ -66,11 +64,9 @@ from dojo.cli.experiments import app as experiments_app  # noqa: E402
 from dojo.cli.program import app as program_app  # noqa: E402
 from dojo.cli.runs import app as runs_app  # noqa: E402
 from dojo.cli.skill import app as skill_app  # noqa: E402
-from dojo.cli.task import app as task_app  # noqa: E402
 
 app.add_typer(config_app, name="config")
 app.add_typer(domain_app, name="domain")
-app.add_typer(task_app, name="task")
 app.add_typer(runs_app, name="runs")
 app.add_typer(experiments_app, name="experiments")
 app.add_typer(program_app, name="program")

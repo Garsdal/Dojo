@@ -187,7 +187,7 @@ async def create_domain(body: CreateDomainRequest, request: Request) -> DomainRe
         )
 
     # Phase 4: tools live on the task. Attach as a draft (unfrozen) task so
-    # the create-domain payload survives until `dojo task setup` runs.
+    # the create-domain payload survives until `dojo domain setup` runs.
     task = Task(tools=tools) if tools else None
 
     domain = Domain(

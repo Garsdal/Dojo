@@ -250,7 +250,7 @@ def _format_exit_error(tool_name: str, exit_code: int, stderr: str, stdout: str)
         hint = (
             " — likely the OS killed it for using too much memory (SIGKILL). "
             "Try shrinking the dataset window in SETUP.md, or pre-build any "
-            "expensive cache outside `dojo task setup` (run the file once with "
+            "expensive cache outside `dojo domain setup` (run the file once with "
             "`uv run python <sources_dir>/load_data.py`)."
         )
     elif exit_code in (-15, 143):
@@ -258,7 +258,7 @@ def _format_exit_error(tool_name: str, exit_code: int, stderr: str, stdout: str)
     elif stderr and "Execution timed out" in stderr:
         hint = (
             " — verification timed out. Bump the cap with "
-            "`dojo task setup --timeout <seconds>` or pre-build the cache."
+            "`dojo domain setup --timeout <seconds>` or pre-build the cache."
         )
     suffix = f": {detail}" if detail else ""
     return f"{tool_name} exited with code {exit_code}{hint}{suffix}"

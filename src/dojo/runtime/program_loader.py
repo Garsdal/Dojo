@@ -63,7 +63,7 @@ _DEFAULT_TEMPLATE = """\
 > agent reads this file at the start of each run.
 >
 > Data and evaluation specifics live in `SETUP.md` (read once by
-> `dojo task setup` to generate `load_data` + `evaluate`).
+> `dojo domain setup` to generate `load_data` + `evaluate`).
 
 ## Goal
 {description}

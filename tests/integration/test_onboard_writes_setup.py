@@ -1,4 +1,4 @@
-"""`dojo init` scaffolds both PROGRAM.md and SETUP.md."""
+"""`dojo onboard --non-interactive` scaffolds both PROGRAM.md and SETUP.md."""
 
 from __future__ import annotations
 
@@ -6,23 +6,18 @@ from pathlib import Path
 
 import pytest
 
-from dojo.cli.init import _init_async
+from dojo.cli.onboard import _onboard_async
 
 
 @pytest.mark.asyncio
-async def test_init_writes_program_and_setup(tmp_path: Path, monkeypatch):
+async def test_onboard_non_interactive_writes_program_and_setup(tmp_path: Path, monkeypatch):
+    """Non-interactive onboarding writes default templates and stops cleanly."""
     monkeypatch.chdir(tmp_path)
-    await _init_async(
-        name="cal_housing",
-        description="predict prices",
+
+    await _onboard_async(
         workspace_arg="empty",
-        task_type_str="regression",
-        data_path=None,
-        target_column=None,
-        test_split=0.2,
-        tracking="file",
-        agent_backend="stub",
-        skip_setup=True,
+        preset_key=None,
+        name="cal_housing",
         non_interactive=True,
         config_dir=tmp_path / ".dojo",
     )
@@ -34,7 +29,8 @@ async def test_init_writes_program_and_setup(tmp_path: Path, monkeypatch):
     program = d_dir / "PROGRAM.md"
     setup = d_dir / "SETUP.md"
     assert program.exists() and setup.exists()
-    # Strict separation of contents
+    # Strict separation of contents — the agent's steering doc must not
+    # contain dataset/eval boilerplate, and vice versa.
     assert "## Dataset" not in program.read_text()
     assert "## Goal" not in setup.read_text()
     assert "## Dataset" in setup.read_text()

@@ -1,7 +1,7 @@
 """`dojo onboard` — guided, all-in-one setup that gets a user from zero to runnable.
 
 Composes existing services (`DomainService`, `WorkspaceService`, `TaskService`,
-`_do_generate` / `_do_freeze` from cli/task.py) behind a single interactive
+`_do_generate` / `_do_freeze` from cli/domain.py) behind a single interactive
 prompt flow. The dominant target user is **already inside their existing
 Python project** — `cd path/to/my/project && dojo onboard` — so the flow
 biases toward "use cwd, reuse pyproject.toml, ask only what's necessary".
@@ -9,7 +9,9 @@ biases toward "use cwd, reuse pyproject.toml, ask only what's necessary".
 Sklearn presets are explicitly opt-in via `--preset` for users without an
 existing project who want to see the framework run end-to-end.
 
-For non-interactive / scripted use, `dojo init` is still the right command.
+For non-interactive / scripted use, pass `--non-interactive --name X` —
+that path skips all prompts, writes default PROGRAM.md + SETUP.md, and
+stops before tool generation. Edit the files, then run `dojo domain setup`.
 """
 
 from __future__ import annotations
@@ -28,9 +30,8 @@ from rich.prompt import Confirm, Prompt
 
 from dojo.cli._lab import build_cli_lab
 from dojo.cli.config import config_init
-from dojo.cli.init import _patch_config
+from dojo.cli.domain import _do_freeze, _do_generate
 from dojo.cli.state import set_current_domain_id
-from dojo.cli.task import _do_freeze, _do_generate
 from dojo.core.domain import Domain, Workspace
 from dojo.core.task import TaskType
 from dojo.runtime.lab import LabEnvironment
@@ -46,6 +47,7 @@ from dojo.runtime.setup_orchestrator import (
     build_workspace_from_arg,
     create_domain_with_workspace,
     create_regression_task,
+    patch_config,
 )
 from dojo.runtime.task_service import TaskFrozenError, TaskVerificationError
 
@@ -135,6 +137,15 @@ def onboard(
         ),
     ),
     name: str | None = typer.Option(None, "--name", help="Domain name (default: cwd basename)."),
+    non_interactive: bool = typer.Option(
+        False,
+        "--non-interactive",
+        help=(
+            "Skip all prompts. Requires --name. Writes default config + "
+            "PROGRAM.md + SETUP.md and stops before tool generation. Edit "
+            "the files, then run `dojo domain setup`."
+        ),
+    ),
     config_dir: Path = typer.Option(  # noqa: B008
         Path(".dojo"), "--config-dir", help="Dojo state directory."
     ),
@@ -147,11 +158,23 @@ def onboard(
         )
         raise typer.Exit(code=EXIT_USER_ERROR)
 
-    if not _stdin_is_tty() and preset is None:
+    if non_interactive:
+        if preset is not None:
+            console.print(
+                "[red]error:[/red] --non-interactive and --preset are mutually exclusive."
+            )
+            raise typer.Exit(code=EXIT_USER_ERROR)
+        if not name:
+            console.print("[red]error:[/red] --non-interactive requires --name to be set.")
+            raise typer.Exit(code=EXIT_USER_ERROR)
+
+    if not _stdin_is_tty() and preset is None and not non_interactive:
         console.print(
             "[red]error:[/red] `dojo onboard` is interactive and stdin is not a TTY. "
             "Use [cyan]dojo onboard --preset <key>[/cyan] for non-interactive preset "
-            "setup, or [cyan]dojo init --non-interactive[/cyan] for scripted use."
+            "setup, or [cyan]dojo onboard --non-interactive --name X[/cyan] for "
+            "scripted use (writes PROGRAM.md + SETUP.md templates and stops; run "
+            "`dojo domain setup` after editing)."
         )
         raise typer.Exit(code=EXIT_USER_ERROR)
 
@@ -160,6 +183,7 @@ def onboard(
             workspace_arg=workspace,
             preset_key=preset,
             name=name,
+            non_interactive=non_interactive,
             config_dir=config_dir,
         )
     )
@@ -175,15 +199,24 @@ async def _onboard_async(
     workspace_arg: str,
     preset_key: str | None,
     name: str | None,
+    non_interactive: bool = False,
     config_dir: Path,
 ) -> None:
     cwd = Path.cwd().resolve()
 
     # ---- 1. Footgun check (silent unless triggered) --------------------------
-    _check_cwd_footgun(cwd)
+    if not non_interactive:
+        _check_cwd_footgun(cwd)
 
     # ---- 2. Existing .dojo/ check -------------------------------------------
-    if not _handle_existing_dojo_dir(config_dir):
+    if non_interactive:
+        if config_dir.exists() and any(config_dir.iterdir()):
+            console.print(
+                f"[red]error:[/red] {config_dir} already exists and is non-empty. "
+                "Remove it or pick a different --config-dir."
+            )
+            raise typer.Exit(code=EXIT_USER_ERROR)
+    elif not _handle_existing_dojo_dir(config_dir):
         raise typer.Exit(code=0)
 
     # ---- 3. Workspace + dep-source preview (no prompt) ----------------------
@@ -196,20 +229,34 @@ async def _onboard_async(
 
     # ---- 4. Config decisions ------------------------------------------------
     config_path = _bootstrap_config(config_dir)
-    _prompt_config_choices(config_path)
+    if not non_interactive:
+        _prompt_config_choices(config_path)
 
     lab, settings = build_cli_lab()
     console.print(f"[green]✓[/green] config ready at {config_path}")
 
     # ---- 5. Domain name + description ---------------------------------------
     domain_name = name or cwd.name or "research"
-    domain_name = Prompt.ask("[bold]Domain name[/bold]", default=domain_name)
-    description = Prompt.ask("[bold]Description (optional)[/bold]", default="")
+    if not non_interactive:
+        domain_name = Prompt.ask("[bold]Domain name[/bold]", default=domain_name)
+        description = Prompt.ask("[bold]Description (optional)[/bold]", default="")
+    else:
+        description = ""
 
     # ---- 6. Preset vs. custom branch ---------------------------------------
-    program_md, setup_md, preset, finish_mode = _resolve_program_and_setup(
-        preset_key=preset_key, domain_name=domain_name, description=description
-    )
+    if non_interactive:
+        # Scripted: write default templates and stop. The caller (likely the
+        # dojo-onboard skill) overwrites PROGRAM.md/SETUP.md then runs
+        # `dojo domain setup` to generate + freeze.
+        fake_domain = _FakeDomain(name=domain_name, description=description)
+        program_md = default_program_template(fake_domain)  # type: ignore[arg-type]
+        setup_md = default_setup_template(fake_domain)  # type: ignore[arg-type]
+        preset = None
+        finish_mode: FinishMode = "stop"
+    else:
+        program_md, setup_md, preset, finish_mode = _resolve_program_and_setup(
+            preset_key=preset_key, domain_name=domain_name, description=description
+        )
 
     # ---- 7. Create domain + workspace + task --------------------------------
     with console.status(
@@ -252,17 +299,18 @@ async def _onboard_async(
     console.print(f"[green]✓[/green] SETUP.md scaffolded at {setup_path}")
 
     # ---- 7b. Skip-finish bail-out ------------------------------------------
-    # User chose to write defaults and finish manually. Stop before tool
-    # generation / freeze so they can edit at their own pace — running
-    # `dojo task setup` later picks up where this leaves off, no unfreeze
-    # needed because the task was never frozen with placeholder content.
+    # User chose to write defaults and finish manually (or ran with
+    # --non-interactive). Stop before tool generation / freeze so they can
+    # edit at their own pace — running `dojo domain setup` later picks up
+    # where this leaves off, no unfreeze needed because the task was never
+    # frozen with placeholder content.
     if finish_mode == "stop":
         set_current_domain_id(Path(settings.storage.base_dir), domain.id)
         console.print()
         console.print("[bold green]onboarding paused[/bold green] — next steps:")
         console.print(f"  1. edit [cyan]{program_path}[/cyan] (research goal)")
         console.print(f"  2. edit [cyan]{setup_path}[/cyan] (data + evaluation)")
-        console.print("  3. run [bold]dojo task setup[/bold] — generates + verifies + freezes")
+        console.print("  3. run [bold]dojo domain setup[/bold] — generates + verifies + freezes")
         console.print("  4. run [bold]dojo run[/bold] — start the agent")
         return
 
@@ -279,7 +327,7 @@ async def _onboard_async(
     success = await _generate_and_verify_with_retries(lab=lab, domain=domain)
     if not success:
         # _generate_and_verify_with_retries already printed the user-facing
-        # error help. Match `dojo task setup`'s exit code semantics.
+        # error help. Match `dojo domain setup`'s exit code semantics.
         raise typer.Exit(code=EXIT_GATE)
 
     # Reload — domain.task.tools are now persisted with verification.
@@ -300,7 +348,7 @@ async def _onboard_async(
     console.print("  2. run [bold]dojo run[/bold] — start the agent")
     console.print(
         "\n[dim]if you re-edit SETUP.md later, run "
-        "[bold]dojo task setup[/bold] to regenerate + re-freeze the task.[/dim]"
+        "[bold]dojo domain setup[/bold] to regenerate + re-freeze the task.[/dim]"
     )
 
 
@@ -458,9 +506,9 @@ def _patch_config_full(
     if not any([agent_backend, tracking, mlflow_uri, mlflow_experiment, linker]):
         return
 
-    # Reuse `_patch_config` for the simple knobs init already supports.
+    # Reuse `patch_config` for the simple agent/tracking knobs.
     if agent_backend or tracking:
-        _patch_config(config_path, tracking=tracking, agent_backend=agent_backend)
+        patch_config(config_path, tracking=tracking, agent_backend=agent_backend)
 
     if not (mlflow_uri or mlflow_experiment or linker):
         return
@@ -485,7 +533,7 @@ def _resolve_program_and_setup(
 
     `finish_mode` controls whether `_onboard_async` proceeds straight to
     tool generation + freeze (`"continue"`) or stops after writing the
-    files (`"stop"`), leaving the user to edit and run `dojo task setup`
+    files (`"stop"`), leaving the user to edit and run `dojo domain setup`
     themselves. Preset content always returns `"continue"` — it's real
     content, not placeholder.
 
@@ -493,7 +541,7 @@ def _resolve_program_and_setup(
     `$EDITOR` or skip and finish manually later. Replaces the previous
     line-by-line `Prompt.ask` flow, which made pasting paragraphs miserable
     and pushed users to skip through with placeholder values that then
-    needed an explicit `dojo task unfreeze` to fix.
+    needed an explicit `dojo domain unfreeze` to fix.
     """
     if preset_key is not None:
         preset = PRESETS[preset_key]
@@ -543,7 +591,7 @@ def _resolve_program_and_setup(
 
     if fill_choice == "skip":
         console.print(
-            "[dim]Writing default templates — edit them, then run [bold]dojo task setup[/bold] "
+            "[dim]Writing default templates — edit them, then run [bold]dojo domain setup[/bold] "
             "to generate + verify + freeze.[/dim]"
         )
         return default_program, default_setup, None, "stop"
@@ -677,7 +725,7 @@ async def _generate_and_verify_with_retries(*, lab: LabEnvironment, domain: Doma
             console.print(
                 "[yellow]warning:[/yellow] workspace has no python_path — "
                 "cannot auto-install. Install the modules manually and rerun "
-                "[cyan]dojo task setup[/cyan]."
+                "[cyan]dojo domain setup[/cyan]."
             )
             break
         _pip_install_into_workspace(
@@ -698,7 +746,7 @@ async def _generate_and_verify_with_retries(*, lab: LabEnvironment, domain: Doma
         "    [cyan]·[/cyan] [dim]if a message says[/dim] "
         "[yellow]<file>.py:<line>[/yellow][dim], the bug is in the AI-generated "
         "tool — edit SETUP.md to steer it differently and rerun "
-        "[cyan]dojo task setup[/cyan][/dim]\n"
+        "[cyan]dojo domain setup[/cyan][/dim]\n"
         "    [cyan]·[/cyan] [dim]messages mentioning[/dim] "
         "[yellow]0 rows / dataset window / cache[/yellow][dim] are about "
         "your data setup — fix SETUP.md[/dim]"

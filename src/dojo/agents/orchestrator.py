@@ -122,7 +122,7 @@ class AgentOrchestrator:
         if require_ready_task:
             if domain is None:
                 raise TaskNotReadyError(
-                    f"Domain {domain_id!r} not found. Create one with `dojo init`."
+                    f"Domain {domain_id!r} not found. Create one with `dojo onboard`."
                 )
             _emit("checking task readiness")
             TaskService(self.lab).assert_ready(domain_id, domain.task)

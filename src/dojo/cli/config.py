@@ -29,7 +29,7 @@ api:
 sandbox:
   # Per-experiment wall-clock cap for `run_experiment` subprocesses.
   timeout: 300.0
-  # One-off cap for `dojo task setup` verification — set high because the
+  # One-off cap for `dojo domain setup` verification — set high because the
   # first call to `load_data` may have to fetch + cache real datasets.
   verification_timeout: 600.0
 

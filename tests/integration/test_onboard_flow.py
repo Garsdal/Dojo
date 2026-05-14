@@ -55,11 +55,11 @@ def onboard_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pat
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DOJO_AGENT__BACKEND", "stub")
 
-    # Onboard imports `_do_generate` from cli/task — patch the factory there.
-    import dojo.cli.task as task_cli
+    # Onboard imports `_do_generate` from cli/domain — patch the factory there.
+    import dojo.cli.domain as domain_cli
 
     monkeypatch.setattr(
-        task_cli, "create_agent_backend", lambda _name, *, model=None: _FakeBackend()
+        domain_cli, "create_agent_backend", lambda _name, *, model=None: _FakeBackend()
     )
 
     import dojo.cli.onboard as onboard_mod
@@ -179,7 +179,7 @@ def test_onboard_unknown_preset_errors_fast(onboard_dir: Path):
 def test_onboard_custom_path_skip_stops_before_tool_gen(onboard_dir: Path):
     """Custom + 'skip' writes default templates and stops cleanly before tool
     generation — no freeze, no verifier call. User can edit PROGRAM.md + SETUP.md
-    and run `dojo task setup` later without needing `dojo task unfreeze` first."""
+    and run `dojo domain setup` later without needing `dojo domain unfreeze` first."""
     runner = CliRunner()
 
     inputs = "\n".join(
