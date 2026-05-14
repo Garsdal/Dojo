@@ -106,6 +106,12 @@ async def create_domain_with_workspace(
             await lab.domain_store.save(domain)
         except Exception as e:
             workspace_warning = str(e)
+            # Persist the partial state explicitly so downstream code can gate
+            # on `workspace.ready` rather than rediscovering the failure via a
+            # confusing ModuleNotFoundError during tool verification.
+            assert domain.workspace is not None  # checked at the if guard above
+            domain.workspace.ready = False
+            await lab.domain_store.save(domain)
 
     return domain, workspace_warning
 

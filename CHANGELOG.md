@@ -13,6 +13,17 @@ for the release workflow.
 
 ## [Unreleased]
 
+## [v0.0.23] - 2026-05-14
+
+### Agent prompts
+
+(none in this release)
+
+### Fixed
+
+- **`dojo onboard` no longer prompts to install into a non-existent venv.** When the docker-venv build during workspace setup fails — or `workspace.python_path` is unset for any other reason — tool verification now refuses to start instead of producing a confusing downstream `ModuleNotFoundError`, and the post-verification "Install into the workspace venv?" prompt is skipped entirely with an actionable error pointing at the root cause. `WorkspaceService.setup()` failures persist `workspace.ready = False` to disk so the downstream guard has a single boolean to gate on. (#27)
+- **`dojo onboard` auto-install honours the docker sandbox backend.** When `sandbox.backend = "docker"`, missing modules detected by tool verification are now installed *inside* the container against `.venv-docker/` (via `docker run -v <ws>:<ws> -w <ws> <image> uv pip install --python <python_path>`), matching the venv the verifier itself runs against. Previously the install ran on the host with a Linux ELF interpreter and would fail with `exec format error` on macOS. The host vs. docker dispatch lives on the new [`WorkspaceService.install_packages`](src/dojo/runtime/workspace_service.py) — distinct from `Sandbox.install_packages`, which installs into the image, not the workspace venv. (#27)
+
 ## [v0.0.22] - 2026-05-14
 
 ### Agent prompts

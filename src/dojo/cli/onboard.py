@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-import subprocess
 import sys
 import typing
 from pathlib import Path
@@ -50,6 +49,7 @@ from dojo.runtime.setup_orchestrator import (
     patch_config,
 )
 from dojo.runtime.task_service import TaskFrozenError, TaskVerificationError
+from dojo.runtime.workspace_service import WorkspaceService
 
 console = Console()
 
@@ -316,8 +316,9 @@ async def _onboard_async(
 
     # ---- 8. Preset-only: pre-install preset deps ----------------------------
     if preset is not None and domain.workspace and domain.workspace.python_path:
-        _pip_install_into_workspace(
-            python_path=domain.workspace.python_path,
+        await _pip_install_into_workspace(
+            lab=lab,
+            workspace=domain.workspace,
             modules=list(preset.pip_deps),
             label=f"installing preset deps ({', '.join(preset.pip_deps)})",
         )
@@ -650,40 +651,28 @@ class _FakeDomain:
         self.description = description
 
 
-def _pip_install_into_workspace(*, python_path: str, modules: list[str], label: str) -> None:
-    """Install modules into the workspace's venv. Warn (don't raise) on failure.
+async def _pip_install_into_workspace(
+    *, lab: LabEnvironment, workspace: Workspace, modules: list[str], label: str
+) -> bool:
+    """Install ``modules`` into the workspace's venv via ``WorkspaceService``.
 
-    Prefers `uv pip install --python <path>` when uv is on PATH — Dojo's
-    `WorkspaceService` uses uv to create venvs from `pyproject.toml`, and
-    those venvs don't ship pip by default, so `python -m pip install` would
-    crash with `No module named pip`. Falls back to `python -m pip install`
-    only when uv isn't available.
+    Picks the right install path for the configured sandbox backend (host or
+    docker). Warns (don't raise) on failure so onboarding can keep going. The
+    sync host-only ``_resolve_install_cmd`` helper used to live here; it's
+    been folded into :meth:`WorkspaceService.install_packages`.
     """
     if not modules:
-        return
+        return True
     console.print(f"[dim]{label}...[/dim]")
-    cmd = _resolve_install_cmd(python_path, modules)
-    try:
-        result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=300)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        console.print(f"[yellow]warning:[/yellow] install failed to start: {e}")
-        return
-    if result.returncode != 0:
-        tail = (result.stderr or result.stdout).strip().splitlines()[-3:]
+    ws_service = WorkspaceService(Path(lab.settings.storage.base_dir), lab.settings.sandbox)
+    result = await ws_service.install_packages(workspace, modules)
+    if not result.ok:
         console.print(
-            f"[yellow]warning:[/yellow] install exited {result.returncode}; "
-            f"continuing. Last lines:\n  " + "\n  ".join(tail)
+            f"[yellow]warning:[/yellow] {result.message}; continuing without {', '.join(modules)}"
         )
-        return
+        return False
     console.print(f"[green]✓[/green] installed: {', '.join(modules)}")
-
-
-def _resolve_install_cmd(python_path: str, modules: list[str]) -> list[str]:
-    """Pick the right install command for the workspace venv."""
-    uv_bin = shutil.which("uv")
-    if uv_bin:
-        return [uv_bin, "pip", "install", "--python", python_path, *modules]
-    return [python_path, "-m", "pip", "install", *modules]
+    return True
 
 
 async def _generate_and_verify_with_retries(*, lab: LabEnvironment, domain: Domain) -> bool:
@@ -691,7 +680,16 @@ async def _generate_and_verify_with_retries(*, lab: LabEnvironment, domain: Doma
 
     Returns True on success (every required tool verified), False on failure
     after exhausting retries or user declining the install offer.
+
+    Pre-flight guard: if the workspace isn't ready (no python_path), refuse
+    to start tool generation rather than letting verification proceed against
+    the sandbox's default interpreter and produce a misleading
+    ``ModuleNotFoundError``.
     """
+    if not _workspace_is_ready(domain):
+        _print_workspace_not_ready(lab.settings.sandbox.backend)
+        return False
+
     last_errors: list[str] = []
     for attempt in range(MAX_INSTALL_RETRIES):
         try:
@@ -728,24 +726,25 @@ async def _generate_and_verify_with_retries(*, lab: LabEnvironment, domain: Doma
             )
             break
 
+        # Refresh domain *before* prompting — never ask a question we can't honour.
+        refreshed = await lab.domain_store.load(domain.id)
+        assert refreshed is not None
+        if not _workspace_is_ready(refreshed):
+            console.print(
+                f"[yellow]verification failed[/yellow] — missing module(s): {', '.join(deduped)}"
+            )
+            _print_workspace_not_ready(lab.settings.sandbox.backend)
+            break
+
         console.print(
             f"[yellow]verification failed[/yellow] — missing module(s): {', '.join(deduped)}"
         )
         if not Confirm.ask("Install into the workspace venv?", default=True):
             break
 
-        # Refresh domain to read the latest workspace.python_path.
-        refreshed = await lab.domain_store.load(domain.id)
-        assert refreshed is not None
-        if not (refreshed.workspace and refreshed.workspace.python_path):
-            console.print(
-                "[yellow]warning:[/yellow] workspace has no python_path — "
-                "cannot auto-install. Install the modules manually and rerun "
-                "[cyan]dojo domain setup[/cyan]."
-            )
-            break
-        _pip_install_into_workspace(
-            python_path=refreshed.workspace.python_path,
+        await _pip_install_into_workspace(
+            lab=lab,
+            workspace=refreshed.workspace,  # type: ignore[arg-type]
             modules=deduped,
             label=f"installing {', '.join(deduped)}",
         )
@@ -768,3 +767,36 @@ async def _generate_and_verify_with_retries(*, lab: LabEnvironment, domain: Doma
         "your data setup — fix SETUP.md[/dim]"
     )
     return False
+
+
+def _workspace_is_ready(domain: Domain) -> bool:
+    """A workspace is ready when setup completed and published a python_path."""
+    ws = domain.workspace
+    return bool(ws and ws.ready and ws.python_path)
+
+
+def _print_workspace_not_ready(sandbox_backend: str) -> None:
+    """Render the "workspace not ready" actionable error.
+
+    Two flavours: docker (the most common cause is a silent ``.venv-docker/``
+    build failure) and host (rare — usually means ``uv sync`` / ``pip
+    install`` failed during ``WorkspaceService.setup``).
+    """
+    console.print()
+    console.print("[red]✗ workspace is not ready[/red] — tool verification cannot run.")
+    if sandbox_backend == "docker":
+        console.print(
+            "  [dim]the docker venv ([cyan].venv-docker/[/cyan]) didn't build, so the "
+            "workspace has no python interpreter to install into.[/dim]"
+        )
+        console.print(
+            "  [dim]fix:[/dim] rerun [cyan]dojo domain setup[/cyan] and watch the "
+            "output for [yellow]docker_venv_build_failed[/yellow]; or switch to "
+            '[cyan]sandbox.backend = "local"[/cyan] in [cyan].dojo/config.yaml[/cyan].'
+        )
+    else:
+        console.print(
+            "  [dim]the workspace setup step didn't produce a python_path. "
+            "Check the earlier 'workspace setup failed' warning, or rerun "
+            "[cyan]dojo domain setup[/cyan].[/dim]"
+        )
