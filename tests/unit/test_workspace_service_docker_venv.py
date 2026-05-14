@@ -157,3 +157,145 @@ async def test_docker_venv_build_failure_raises_clear_error(
     )
     with pytest.raises(RuntimeError, match="Failed to build"):
         await svc.setup(_make_domain(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# install_packages — the auto-install path used by `dojo onboard` after a
+# verifier ModuleNotFoundError. Has to dispatch on `sandbox.backend` because
+# the host can't execute `.venv-docker/bin/python` (Linux ELF on macOS).
+# ---------------------------------------------------------------------------
+
+
+def _ready_workspace(tmp_path: Path, python_path: str) -> Workspace:
+    return Workspace(
+        source=WorkspaceSource.LOCAL,
+        path=str(tmp_path),
+        python_path=python_path,
+        ready=True,
+    )
+
+
+async def test_install_packages_docker_backend_runs_inside_container(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """With docker backend, install must `docker run` against the configured
+    image with the workspace bind-mounted at the same absolute path."""
+    invocations: list[list[str]] = []
+
+    async def fake_exec(*argv: str, **_: Any) -> _FakeProc:
+        invocations.append(list(argv))
+        return _FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+    svc = WorkspaceService(
+        tmp_path / ".dojo",
+        sandbox_settings=SandboxSettings(backend="docker", image="python:3.11-slim"),
+    )
+    ws = _ready_workspace(tmp_path, str(tmp_path / ".venv-docker" / "bin" / "python"))
+    result = await svc.install_packages(ws, ["scikit-learn", "polars"])
+
+    assert result.ok, result.message
+    assert len(invocations) == 1
+    call = invocations[0]
+    assert call[0] == "docker"
+    assert call[1] == "run"
+    assert "--rm" in call
+    assert f"{tmp_path}:{tmp_path}" in call
+    assert "python:3.11-slim" in call
+    # The inner command must `uv pip install --python <path>` against the
+    # docker venv, not the host venv. `scikit-learn` and `polars` should be in
+    # the inner shell command somewhere.
+    inner = call[-1]
+    assert "uv pip install" in inner
+    assert "--python " + str(tmp_path / ".venv-docker" / "bin" / "python") in inner
+    assert "scikit-learn" in inner
+    assert "polars" in inner
+
+
+async def test_install_packages_local_backend_runs_uv_on_host(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Default `local` backend installs on the host with
+    `uv pip install --python <path>`. Regression: uv-managed venvs don't ship
+    pip, so `python -m pip install` would crash with `No module named pip`."""
+    invocations: list[list[str]] = []
+
+    async def fake_exec(*argv: str, **_: Any) -> _FakeProc:
+        invocations.append(list(argv))
+        return _FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(
+        "dojo.runtime.workspace_service.shutil.which",
+        lambda name: "/fake/uv" if name == "uv" else None,
+    )
+
+    svc = WorkspaceService(tmp_path / ".dojo")  # default backend = local
+    ws = _ready_workspace(tmp_path, str(tmp_path / ".venv" / "bin" / "python"))
+    result = await svc.install_packages(ws, ["matplotlib"])
+
+    assert result.ok, result.message
+    assert len(invocations) == 1
+    assert invocations[0] == [
+        "/fake/uv",
+        "pip",
+        "install",
+        "--python",
+        str(tmp_path / ".venv" / "bin" / "python"),
+        "matplotlib",
+    ]
+
+
+async def test_install_packages_local_backend_falls_back_to_python_pip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """When uv isn't on PATH (rare), fall back to `python -m pip install`."""
+    invocations: list[list[str]] = []
+
+    async def fake_exec(*argv: str, **_: Any) -> _FakeProc:
+        invocations.append(list(argv))
+        return _FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr("dojo.runtime.workspace_service.shutil.which", lambda _: None)
+
+    svc = WorkspaceService(tmp_path / ".dojo")
+    ws = _ready_workspace(tmp_path, "/path/to/python")
+    result = await svc.install_packages(ws, ["matplotlib"])
+
+    assert result.ok
+    assert invocations[0] == ["/path/to/python", "-m", "pip", "install", "matplotlib"]
+
+
+async def test_install_packages_refuses_when_python_path_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """No python_path = workspace not ready; return failure without invoking
+    any subprocess. The caller should have caught this — install_packages is
+    just a defence in depth."""
+    invocations: list[list[str]] = []
+
+    async def fake_exec(*argv: str, **_: Any) -> _FakeProc:
+        invocations.append(list(argv))
+        return _FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+    svc = WorkspaceService(
+        tmp_path / ".dojo",
+        sandbox_settings=SandboxSettings(backend="docker"),
+    )
+    ws = Workspace(source=WorkspaceSource.LOCAL, path=str(tmp_path), python_path=None)
+    result = await svc.install_packages(ws, ["scikit-learn"])
+
+    assert not result.ok
+    assert "python_path" in result.message
+    assert invocations == []
+
+
+async def test_install_packages_empty_modules_is_noop(tmp_path: Path) -> None:
+    svc = WorkspaceService(tmp_path / ".dojo")
+    ws = _ready_workspace(tmp_path, "/path/to/python")
+    result = await svc.install_packages(ws, [])
+    assert result.ok

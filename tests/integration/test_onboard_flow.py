@@ -138,36 +138,11 @@ def test_select_is_sync_no_nested_event_loop() -> None:
     )
 
 
-def test_resolve_install_cmd_prefers_uv_when_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Regression: uv-managed venvs don't ship pip, so `python -m pip install`
-    crashes with `No module named pip`. Use `uv pip install --python <path>`
-    when uv is available."""
-    import shutil
-
-    from dojo.cli.onboard import _resolve_install_cmd
-
-    monkeypatch.setattr(shutil, "which", lambda name: "/fake/uv" if name == "uv" else None)
-    cmd = _resolve_install_cmd("/path/to/python", ["matplotlib", "scikit-learn"])
-    assert cmd == [
-        "/fake/uv",
-        "pip",
-        "install",
-        "--python",
-        "/path/to/python",
-        "matplotlib",
-        "scikit-learn",
-    ]
-
-
-def test_resolve_install_cmd_falls_back_to_python_pip(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When uv isn't on PATH (rare), fall back to `python -m pip install`."""
-    import shutil
-
-    from dojo.cli.onboard import _resolve_install_cmd
-
-    monkeypatch.setattr(shutil, "which", lambda name: None)
-    cmd = _resolve_install_cmd("/path/to/python", ["matplotlib"])
-    assert cmd == ["/path/to/python", "-m", "pip", "install", "matplotlib"]
+# Install-command dispatch lives on `WorkspaceService.install_packages` now —
+# host-vs-docker coverage is in tests/unit/test_workspace_service_docker_venv.py
+# (`test_install_packages_*`). The pre-existing
+# `test_resolve_install_cmd_*` tests were replaced when `_resolve_install_cmd`
+# was folded into the service.
 
 
 def test_onboard_unknown_preset_errors_fast(onboard_dir: Path):

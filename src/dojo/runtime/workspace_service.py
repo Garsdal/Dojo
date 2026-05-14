@@ -6,6 +6,7 @@ import asyncio
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,14 @@ logger = get_logger(__name__)
 # host's `.venv/` so users keep their existing workflow; the suffix is the
 # only thing telling them apart.
 _DOCKER_VENV_DIRNAME = ".venv-docker"
+
+
+@dataclass(frozen=True)
+class InstallResult:
+    """Outcome of installing packages into a workspace venv."""
+
+    ok: bool
+    message: str
 
 
 class WorkspaceService:
@@ -122,6 +131,95 @@ class WorkspaceService:
             errors.append(f"Python not found or timed out: {e}")
 
         return {"ok": len(errors) == 0, "errors": errors}
+
+    async def install_packages(self, workspace: Workspace, modules: list[str]) -> InstallResult:
+        """Install ``modules`` into the workspace's running venv.
+
+        Dispatches on ``sandbox_settings.backend``:
+
+        - ``"docker"`` — install **inside** the configured image with the
+          workspace bind-mounted at the same absolute path. The python lives at
+          ``<ws>/.venv-docker/bin/python`` and is a Linux ELF binary, so we
+          can't run ``pip`` against it from a macOS host. Mirrors the
+          bind-mount idiom used by :meth:`_ensure_docker_venv`.
+        - any other backend — install on the host against the published
+          ``workspace.python_path``. Prefers ``uv pip install --python <path>``
+          when ``uv`` is on PATH (uv-built venvs don't ship pip, so
+          ``python -m pip`` would crash with ``No module named pip``).
+
+        Refuses to run with no ``python_path`` — that's a "workspace not
+        ready" condition the caller should have caught.
+        """
+        if not modules:
+            return InstallResult(ok=True, message="")
+        if not workspace.python_path or not workspace.path:
+            return InstallResult(
+                ok=False,
+                message="workspace has no python_path; setup did not complete",
+            )
+
+        if self.sandbox_settings.backend == "docker":
+            return await self._install_in_docker(workspace, modules)
+        return await self._install_on_host(workspace, modules)
+
+    async def _install_on_host(self, workspace: Workspace, modules: list[str]) -> InstallResult:
+        python_path = workspace.python_path
+        assert python_path is not None  # checked by caller
+        uv_bin = shutil.which("uv")
+        if uv_bin:
+            cmd = [uv_bin, "pip", "install", "--python", python_path, *modules]
+        else:
+            cmd = [python_path, "-m", "pip", "install", *modules]
+        return await self._run_install(cmd, label="host", workspace_path=workspace.path)
+
+    async def _install_in_docker(self, workspace: Workspace, modules: list[str]) -> InstallResult:
+        python_path = workspace.python_path
+        ws_path = workspace.path
+        assert python_path is not None and ws_path is not None  # checked by caller
+        image = self.sandbox_settings.image
+        # Run uv inside the container so the install lands in .venv-docker/
+        # on the host filesystem via the bind-mount. We don't trust the image
+        # to ship uv, so pip-install it first (same pattern as _ensure_docker_venv).
+        inner = (
+            "set -euo pipefail; "
+            "pip install --quiet uv && "
+            f"uv pip install --python {python_path} " + " ".join(_shell_quote(m) for m in modules)
+        )
+        cmd = [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{ws_path}:{ws_path}",
+            "-w",
+            ws_path,
+            image,
+            "bash",
+            "-lc",
+            inner,
+        ]
+        return await self._run_install(cmd, label=f"docker({image})", workspace_path=ws_path)
+
+    async def _run_install(
+        self, cmd: list[str], *, label: str, workspace_path: str
+    ) -> InstallResult:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=workspace_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=600.0)
+        except (TimeoutError, FileNotFoundError, OSError) as e:
+            return InstallResult(ok=False, message=f"{label} install failed to start: {e}")
+        if proc.returncode != 0:
+            tail = (stderr_b.decode() or stdout_b.decode()).strip().splitlines()[-3:]
+            return InstallResult(
+                ok=False,
+                message=f"{label} install exited {proc.returncode}: " + " | ".join(tail),
+            )
+        return InstallResult(ok=True, message=f"installed via {label}")
 
     def get_status(self, workspace: Workspace) -> dict[str, Any]:
         """Return setup status summary for a workspace."""
@@ -381,6 +479,13 @@ class WorkspaceService:
 
         logger.info("docker_venv_build_done", cwd=str(ws_path), python=str(venv_python))
         return str(venv_python)
+
+
+def _shell_quote(s: str) -> str:
+    """Minimal shell-safe quoting for module names passed to bash -lc."""
+    import shlex
+
+    return shlex.quote(s)
 
 
 def _docker_venv_setup_cmd(ws_path: Path) -> str:
